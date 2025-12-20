@@ -139,17 +139,6 @@ function convertGoogleSSEToOpenAI(chunk: string): string {
       const parsed = JSON.parse(data)
       const parts = parsed.candidates?.[0]?.content?.parts || []
       
-      // Debug logging
-      if (parts.length > 0) {
-        console.log('=== SSE Parts ===')
-        for (const part of parts) {
-          console.log('Part keys:', Object.keys(part))
-          if (part.inlineData) {
-            console.log('Found inlineData! mimeType:', part.inlineData.mimeType, 'data length:', part.inlineData.data?.length)
-          }
-        }
-      }
-      
       for (const part of parts) {
         if (part.thought === true && part.text) {
           results.push(`data: ${JSON.stringify({
@@ -162,7 +151,6 @@ function convertGoogleSSEToOpenAI(chunk: string): string {
         } else if (part.inlineData && part.thought !== true) {
           const mimeType = part.inlineData.mimeType || 'image/png'
           const base64Data = part.inlineData.data
-          console.log('Emitting image SSE event, mimeType:', mimeType)
           results.push(`data: ${JSON.stringify({
             choices: [{ delta: { image: { mimeType, data: base64Data } } }],
           })}\n\n`)
@@ -224,6 +212,7 @@ export function chatApiPlugin(): Plugin {
             
             const isClaudeModel = CLAUDE_MODELS.includes(model)
             const isClaudeThinkingModel = CLAUDE_THINKING_MODELS.includes(model)
+            const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
 
             let endpoint: string
             let headers: Record<string, string>
@@ -284,11 +273,9 @@ export function chatApiPlugin(): Plugin {
               }
             } else {
               const enableThinking = model.includes('2.5') || model.includes('3-pro')
-              const enableImageGeneration = IMAGE_GENERATION_MODELS.includes(model)
               const imageConfig: ImageConfig | undefined = body.imageConfig
               
-              // Use non-streaming for image generation models
-              if (enableImageGeneration) {
+              if (isImageModel) {
                 endpoint = `${GOOGLE_BASE_URL}/models/${model}:generateContent`
               } else {
                 endpoint = `${GOOGLE_BASE_URL}/models/${model}:streamGenerateContent?alt=sse`
@@ -299,14 +286,7 @@ export function chatApiPlugin(): Plugin {
                 'x-goog-api-key': 'dummy-google-api-key-for-proxy-usage',
               }
 
-              requestBody = convertToGoogleFormat(messages, enableThinking, enableImageGeneration, imageConfig)
-              
-              // Debug logging for image generation
-              console.log('=== Gemini Request ===')
-              console.log('Model:', model)
-              console.log('Enable image generation:', enableImageGeneration)
-              console.log('Endpoint:', endpoint)
-              console.log('generationConfig:', JSON.stringify(requestBody.generationConfig, null, 2))
+              requestBody = convertToGoogleFormat(messages, enableThinking, isImageModel, imageConfig)
             }
 
             const upstreamRes = await fetch(endpoint, {
@@ -329,19 +309,11 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Cache-Control', 'no-cache')
             res.setHeader('Connection', 'keep-alive')
 
-            const enableImageGeneration = IMAGE_GENERATION_MODELS.includes(model)
-
-            // Handle non-streaming response for image generation
-            if (enableImageGeneration && !isClaudeModel) {
-              const jsonResponse = await upstreamRes.json()
-              console.log('=== Non-streaming response ===')
-              console.log('Response keys:', Object.keys(jsonResponse))
-              
+            if (isImageModel && !isClaudeModel) {
+              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; inlineData?: { mimeType: string; data: string } }> } }> }
               const parts = jsonResponse.candidates?.[0]?.content?.parts || []
-              console.log('Parts count:', parts.length)
               
               for (const part of parts) {
-                console.log('Part keys:', Object.keys(part))
                 if (part.thought === true && part.text) {
                   res.write(`data: ${JSON.stringify({
                     choices: [{ delta: { thinking: part.text } }],
@@ -351,7 +323,6 @@ export function chatApiPlugin(): Plugin {
                     choices: [{ delta: { content: part.text } }],
                   })}\n\n`)
                 } else if (part.inlineData) {
-                  console.log('Found inlineData! mimeType:', part.inlineData.mimeType, 'data length:', part.inlineData.data?.length)
                   res.write(`data: ${JSON.stringify({
                     choices: [{ delta: { image: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } } }],
                   })}\n\n`)
@@ -377,13 +348,6 @@ export function chatApiPlugin(): Plugin {
                   const { done, value } = await reader.read()
                   if (done) break
                   const chunk = decoder.decode(value, { stream: true })
-                  
-                  // Debug: log raw upstream chunks
-                  console.log('=== Upstream chunk ===', chunk.length, 'chars')
-                  if (chunk.includes('inlineData')) {
-                    console.log('!!! FOUND inlineData in raw chunk !!!')
-                    console.log('Chunk preview:', chunk.slice(0, 1000))
-                  }
                   
                   if (isClaudeModel) {
                     const converted = convertClaudeSSEToOpenAI(chunk)
