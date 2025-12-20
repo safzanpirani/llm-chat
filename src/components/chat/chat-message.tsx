@@ -23,7 +23,7 @@ interface ChatMessageProps {
   generatedImages?: GeneratedImage[]
   isStreaming?: boolean
   modelName?: string
-  onEdit?: (content: string) => void
+  onEdit?: () => void
 }
 
 export function ChatMessage({ role, content, thinking, attachments, generatedImages, isStreaming, modelName, onEdit }: ChatMessageProps) {
@@ -71,7 +71,7 @@ export function ChatMessage({ role, content, thinking, attachments, generatedIma
           </span>
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <button
-              onClick={() => onEdit?.(content)}
+              onClick={() => onEdit?.()}
               className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
               title="Edit message"
               aria-label="Edit message"

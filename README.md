@@ -1,73 +1,50 @@
-# React + TypeScript + Vite
+# LLM Chat
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Self-hosted chat application with multi-model LLM support. Proxies to local LLM APIs at `localhost:8317`.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Multi-model support**: Claude (Anthropic API) and Gemini (Google API) models
+- **Image generation**: Gemini 3 Pro Image with aspect ratio and resolution controls
+- **Streaming responses**: Real-time token streaming with thinking/reasoning display
+- **File attachments**: Upload images via button, paste, or drag-and-drop
+- **Session management**: Create, switch, and delete chat sessions
+- **Message editing**: Edit any message to regenerate from that point
+- **Dark/light theme**: Toggle between themes
+- **LAN accessible**: Access from other devices on the network
 
-## React Compiler
+## Models
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Model | Provider | Features |
+|-------|----------|----------|
+| Gemini 2.5 Flash | Google | Default, fast |
+| Gemini 2.5 Flash Lite | Google | Lightweight |
+| Gemini 3 Flash | Google | Latest |
+| Gemini 3 Pro Preview | Google | Thinking |
+| Gemini 3 Pro Image | Google | Image generation |
+| Claude Sonnet 4.5 | Anthropic | |
+| Claude Sonnet 4.5 Thinking | Anthropic | Extended thinking |
+| Claude Opus 4.5 Thinking | Anthropic | Extended thinking |
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Access at `http://localhost:5173` or `http://<your-ip>:5173` from other devices.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Requirements
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Node.js 18+
+- Local LLM proxy running at `localhost:8317`
+  - Claude models: `/v1/messages` (Anthropic API format)
+  - Gemini models: `/v1beta/models/{model}:streamGenerateContent` (Google API format)
+
+## Tech Stack
+
+- React 19 + Vite 7 + TypeScript
+- Tailwind CSS v4
+- shadcn/ui components
+- streamdown for markdown rendering

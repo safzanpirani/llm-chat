@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import React from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChatMessage } from './chat-message'
-import { ChatInput } from './chat-input'
+import { ChatInput, type ChatInputHandle } from './chat-input'
 import { ModelSelector } from './model-selector'
 import { SessionSidebar } from './session-sidebar'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -44,6 +44,7 @@ export function ChatContainer() {
   const pendingModelRef = useRef<ModelId>(DEFAULT_MODEL)
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatInputRef = useRef<ChatInputHandle>(null)
   const userScrolledRef = useRef(false)
   const lastScrollTopRef = useRef(0)
 
@@ -257,6 +258,17 @@ export function ChatContainer() {
     }
   }
 
+  const handleEditMessage = (messageId: string, content: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId)
+    if (messageIndex === -1) return
+    
+    const truncatedMessages = messages.slice(0, messageIndex)
+    setMessages(truncatedMessages)
+    
+    chatInputRef.current?.setValue(content)
+    chatInputRef.current?.focus()
+  }
+
   const handleNewSession = () => {
     createSession(model)
   }
@@ -326,6 +338,7 @@ export function ChatContainer() {
                     attachments={message.attachments}
                     generatedImages={message.generatedImages}
                     modelName={message.model}
+                    onEdit={() => handleEditMessage(message.id, message.content)}
                   />
                 ))}
                 {(streamingContent || streamingThinking || streamingImages.length > 0) && (
@@ -344,6 +357,7 @@ export function ChatContainer() {
           </div>
         </ScrollArea>
         <ChatInput
+          ref={chatInputRef}
           onSend={handleSend}
           onStop={handleStop}
           isLoading={isStreaming}
