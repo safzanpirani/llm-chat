@@ -6,15 +6,21 @@ export interface SessionMeta {
   model: string
 }
 
+export interface GeneratedImage {
+  mimeType: string
+  data: string
+  prompt?: string
+  aspectRatio?: string
+  resolution?: string
+  generationTimeMs?: number
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   thinking?: string
-  generatedImages?: Array<{
-    mimeType: string
-    data: string
-  }>
+  generatedImages?: GeneratedImage[]
   createdAt: string
   model?: string
   attachments?: Array<{

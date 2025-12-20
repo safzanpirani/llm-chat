@@ -2,17 +2,14 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Streamdown } from 'streamdown'
 import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw } from 'lucide-react'
+import { Lightbox } from '@/components/ui/lightbox'
+import type { GeneratedImage } from '@/lib/storage'
 
 interface Attachment {
   type: 'image' | 'document'
   name: string
   data: string
   mimeType: string
-}
-
-interface GeneratedImage {
-  mimeType: string
-  data: string
 }
 
 interface ChatMessageProps {
@@ -49,6 +46,7 @@ export function ChatMessage({
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(content)
+  const [lightboxImage, setLightboxImage] = useState<GeneratedImage | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isClaudeModel = modelName?.toLowerCase().includes('claude')
@@ -279,7 +277,10 @@ export function ChatMessage({
             <div className="mt-4 flex flex-wrap gap-3">
               {generatedImages.map((img, i) => (
                 <div key={i} className="group relative">
-                  <div className="relative overflow-hidden rounded-lg border-2 border-primary/20 bg-muted/30 transition-all hover:border-primary/50">
+                  <div 
+                    className="relative overflow-hidden rounded-lg border-2 border-primary/20 bg-muted/30 transition-all hover:border-primary/50 cursor-pointer"
+                    onClick={() => setLightboxImage(img)}
+                  >
                     <img 
                       src={`data:${img.mimeType};base64,${img.data}`}
                       alt={`Generated image ${i + 1}`}
@@ -290,6 +291,7 @@ export function ChatMessage({
                       download={`generated-${Date.now()}-${i}.png`}
                       className="absolute bottom-2 right-2 p-2 bg-background/80 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
                       title="Download image"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <Download className="h-4 w-4" />
                     </a>
@@ -300,6 +302,10 @@ export function ChatMessage({
           )}
         </div>
       </div>
+      
+      {lightboxImage && (
+        <Lightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
+      )}
     </div>
   )
 }

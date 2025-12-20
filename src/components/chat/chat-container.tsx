@@ -8,7 +8,7 @@ import { SessionSidebar } from './session-sidebar'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
-import type { Message } from '@/lib/storage'
+import type { Message, GeneratedImage } from '@/lib/storage'
 import type { Attachment } from './chat-input'
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] as const
@@ -34,11 +34,11 @@ export function ChatContainer() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
-  const [streamingImages, setStreamingImages] = useState<Array<{ mimeType: string; data: string }>>([])
+  const [streamingImages, setStreamingImages] = useState<GeneratedImage[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingContentRef = useRef('')
   const streamingThinkingRef = useRef('')
-  const streamingImagesRef = useRef<Array<{ mimeType: string; data: string }>>([])
+  const streamingImagesRef = useRef<GeneratedImage[]>([])
   const pendingMessagesRef = useRef<Message[]>([])
   const pendingSessionIdRef = useRef<string | null>(null)
   const pendingModelRef = useRef<ModelId>(DEFAULT_MODEL)
