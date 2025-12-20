@@ -37,6 +37,7 @@ interface Attachment {
 interface GeneratedImage {
   mimeType: string
   data: string
+  thoughtSignature?: string
 }
 
 interface ChatMessage {
@@ -61,7 +62,7 @@ function convertToGoogleFormat(
   const contents = messages
     .filter(m => m.role !== 'system')
     .map(m => {
-      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = []
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string }; thoughtSignature?: string }> = []
       
       if (m.attachments) {
         for (const att of m.attachments) {
@@ -81,12 +82,16 @@ function convertToGoogleFormat(
       
       if (m.generatedImages && m.role === 'assistant') {
         for (const img of m.generatedImages) {
-          parts.push({
+          const imagePart: { inlineData: { mimeType: string; data: string }; thoughtSignature?: string } = {
             inlineData: {
               mimeType: img.mimeType,
               data: img.data,
             },
-          })
+          }
+          if (img.thoughtSignature) {
+            imagePart.thoughtSignature = img.thoughtSignature
+          }
+          parts.push(imagePart)
         }
       }
       
@@ -289,6 +294,7 @@ export function chatApiPlugin(): Plugin {
               requestBody = convertToGoogleFormat(messages, enableThinking, isImageModel, imageConfig)
             }
 
+            const requestStartTime = Date.now()
             const upstreamRes = await fetch(endpoint, {
               method: 'POST',
               headers,
@@ -310,9 +316,8 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Connection', 'keep-alive')
 
             if (isImageModel && !isClaudeModel) {
-              const startTime = Date.now()
-              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; inlineData?: { mimeType: string; data: string } }> } }>; error?: { message: string } }
-              const generationTimeMs = Date.now() - startTime
+              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; thoughtSignature?: string; inlineData?: { mimeType: string; data: string } }> } }>; error?: { message: string } }
+              const generationTimeMs = Date.now() - requestStartTime
               
               if (jsonResponse.error) {
                 console.error('Image API error:', jsonResponse.error)
@@ -343,6 +348,7 @@ export function chatApiPlugin(): Plugin {
                       aspectRatio: imageConfig?.aspectRatio || '1:1',
                       resolution: imageConfig?.resolution || '1K',
                       generationTimeMs,
+                      thoughtSignature: part.thoughtSignature,
                     } } }],
                   })}\n\n`)
                 }

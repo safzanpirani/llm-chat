@@ -13,6 +13,7 @@ export interface GeneratedImage {
   aspectRatio?: string
   resolution?: string
   generationTimeMs?: number
+  thoughtSignature?: string
 }
 
 export interface Message {
