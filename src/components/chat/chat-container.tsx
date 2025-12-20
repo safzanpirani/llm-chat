@@ -7,7 +7,7 @@ import { ModelSelector } from './model-selector'
 import { SessionSidebar } from './session-sidebar'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useSessions } from '@/hooks/use-sessions'
-import { DEFAULT_MODEL, type ModelId } from '@/lib/models'
+import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message } from '@/lib/storage'
 import type { Attachment } from './chat-input'
 
@@ -250,6 +250,13 @@ export function ChatContainer() {
     abortControllerRef.current?.abort()
   }
 
+  const handleSelectSession = async (id: string) => {
+    const session = await loadSession(id)
+    if (session?.model && session.model in MODELS) {
+      setModel(session.model as ModelId)
+    }
+  }
+
   const handleNewSession = () => {
     createSession(model)
   }
@@ -259,7 +266,7 @@ export function ChatContainer() {
       <SessionSidebar
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={loadSession}
+        onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={deleteSession}
       />

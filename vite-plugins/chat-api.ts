@@ -310,9 +310,16 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Connection', 'keep-alive')
 
             if (isImageModel && !isClaudeModel) {
-              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; inlineData?: { mimeType: string; data: string } }> } }> }
-              const parts = jsonResponse.candidates?.[0]?.content?.parts || []
+              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; inlineData?: { mimeType: string; data: string } }> } }>; error?: { message: string } }
               
+              if (jsonResponse.error) {
+                console.error('Image API error:', jsonResponse.error)
+              }
+              
+              const parts = jsonResponse.candidates?.[0]?.content?.parts || []
+              console.log('Image response parts:', parts.length, 'candidates:', jsonResponse.candidates?.length)
+              
+              let imageEmitted = false
               for (const part of parts) {
                 if (part.thought === true && part.text) {
                   res.write(`data: ${JSON.stringify({
@@ -322,7 +329,8 @@ export function chatApiPlugin(): Plugin {
                   res.write(`data: ${JSON.stringify({
                     choices: [{ delta: { content: part.text } }],
                   })}\n\n`)
-                } else if (part.inlineData) {
+                } else if (part.inlineData && !imageEmitted) {
+                  imageEmitted = true
                   res.write(`data: ${JSON.stringify({
                     choices: [{ delta: { image: { mimeType: part.inlineData.mimeType, data: part.inlineData.data } } }],
                   })}\n\n`)

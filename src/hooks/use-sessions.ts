@@ -22,8 +22,10 @@ export function useSessions() {
       const session = await storage.getSession(id)
       setMessages(session.messages || [])
       setCurrentSessionId(id)
+      return session
     } catch (error) {
       console.error('Failed to load session:', error)
+      return null
     }
   }, [])
 
