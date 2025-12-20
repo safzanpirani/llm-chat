@@ -62,7 +62,7 @@ function convertToGoogleFormat(
   const contents = messages
     .filter(m => m.role !== 'system')
     .map(m => {
-      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string }; thoughtSignature?: string }> = []
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string }; thought_signature?: string }> = []
       
       if (m.attachments) {
         for (const att of m.attachments) {
@@ -82,14 +82,14 @@ function convertToGoogleFormat(
       
       if (m.generatedImages && m.role === 'assistant') {
         for (const img of m.generatedImages) {
-          const imagePart: { inlineData: { mimeType: string; data: string }; thoughtSignature?: string } = {
+          const imagePart: { inlineData: { mimeType: string; data: string }; thought_signature?: string } = {
             inlineData: {
               mimeType: img.mimeType,
               data: img.data,
             },
           }
           if (img.thoughtSignature) {
-            imagePart.thoughtSignature = img.thoughtSignature
+            imagePart.thought_signature = img.thoughtSignature
           }
           parts.push(imagePart)
         }
@@ -316,11 +316,15 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Connection', 'keep-alive')
 
             if (isImageModel && !isClaudeModel) {
-              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ thought?: boolean; text?: string; thoughtSignature?: string; inlineData?: { mimeType: string; data: string } }> } }>; error?: { message: string } }
+              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }>; error?: { message: string } }
               const generationTimeMs = Date.now() - requestStartTime
               
               if (jsonResponse.error) {
                 console.error('Image API error:', jsonResponse.error)
+                res.write(`data: ${JSON.stringify({ error: jsonResponse.error })}\n\n`)
+                res.write('data: [DONE]\n\n')
+                res.end()
+                return
               }
               
               const parts = jsonResponse.candidates?.[0]?.content?.parts || []
@@ -330,25 +334,30 @@ export function chatApiPlugin(): Plugin {
               
               let imageEmitted = false
               for (const part of parts) {
-                if (part.thought === true && part.text) {
+                const thought = part.thought as boolean | undefined
+                const text = part.text as string | undefined
+                const inlineData = part.inlineData as { mimeType: string; data: string } | undefined
+                const signature = (part.thoughtSignature || part.thought_signature) as string | undefined
+                
+                if (thought === true && text) {
                   res.write(`data: ${JSON.stringify({
-                    choices: [{ delta: { thinking: part.text } }],
+                    choices: [{ delta: { thinking: text } }],
                   })}\n\n`)
-                } else if (part.text && part.thought !== true) {
+                } else if (text && thought !== true) {
                   res.write(`data: ${JSON.stringify({
-                    choices: [{ delta: { content: part.text } }],
+                    choices: [{ delta: { content: text } }],
                   })}\n\n`)
-                } else if (part.inlineData && !imageEmitted) {
+                } else if (inlineData && !imageEmitted) {
                   imageEmitted = true
                   res.write(`data: ${JSON.stringify({
                     choices: [{ delta: { image: { 
-                      mimeType: part.inlineData.mimeType, 
-                      data: part.inlineData.data,
+                      mimeType: inlineData.mimeType, 
+                      data: inlineData.data,
                       prompt,
                       aspectRatio: imageConfig?.aspectRatio || '1:1',
                       resolution: imageConfig?.resolution || '1K',
                       generationTimeMs,
-                      thoughtSignature: part.thoughtSignature,
+                      thoughtSignature: signature,
                     } } }],
                   })}\n\n`)
                 }
