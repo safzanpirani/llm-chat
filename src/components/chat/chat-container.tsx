@@ -219,6 +219,13 @@ export function ChatContainer() {
 
       const finalMessages = [...newMessages, assistantMessage]
       await saveMessages(sessionId, finalMessages)
+      
+      setIsStreaming(false)
+      setTimeout(() => {
+        setStreamingContent('')
+        setStreamingThinking('')
+        setStreamingImages([])
+      }, 0)
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         if (streamingContentRef.current || streamingThinkingRef.current || streamingImagesRef.current.length > 0) {
@@ -234,16 +241,21 @@ export function ChatContainer() {
           const finalMessages = [...pendingMessagesRef.current, assistantMessage]
           await saveMessages(pendingSessionIdRef.current!, finalMessages)
         }
+        setIsStreaming(false)
+        setTimeout(() => {
+          setStreamingContent('')
+          setStreamingThinking('')
+          setStreamingImages([])
+        }, 0)
       } else {
         console.error('Chat error:', error)
+        setIsStreaming(false)
+        setStreamingContent('')
+        setStreamingThinking('')
+        setStreamingImages([])
       }
     } finally {
-      setIsStreaming(false)
-      setStreamingContent('')
-      setStreamingThinking('')
-      setStreamingImages([])
       abortControllerRef.current = null
-      setTimeout(() => scrollToBottom('auto'), 50)
     }
   }
 
@@ -376,19 +388,25 @@ export function ChatContainer() {
 
       const finalMessages = [...previousMessages, newAssistantMessage]
       await saveMessages(currentSessionId, finalMessages)
+      
+      setIsStreaming(false)
+      setTimeout(() => {
+        setStreamingContent('')
+        setStreamingThinking('')
+        setStreamingImages([])
+      }, 0)
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         console.error('Retry error:', error)
         const restoredMessages = [...previousMessages, message]
         setMessages(restoredMessages)
       }
-    } finally {
       setIsStreaming(false)
       setStreamingContent('')
       setStreamingThinking('')
       setStreamingImages([])
+    } finally {
       abortControllerRef.current = null
-      setTimeout(() => scrollToBottom('auto'), 50)
     }
   }
 
