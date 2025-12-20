@@ -153,13 +153,24 @@ export function ChatContainer() {
       if (!reader) throw new Error('No reader available')
 
       const decoder = new TextDecoder()
+      let buffer = '' // Buffer for incomplete lines
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        const rawChunk = decoder.decode(value, { stream: true })
+        console.log('=== Raw chunk ===', rawChunk.length, 'chars')
+        console.log('First 500 chars:', rawChunk.slice(0, 500))
+        console.log('Last 500 chars:', rawChunk.slice(-500))
+        
+        buffer += rawChunk
+        const lines = buffer.split('\n')
+        
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || ''
+        
+        console.log('Processing', lines.length, 'lines, buffer remaining:', buffer.length)
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -179,12 +190,31 @@ export function ChatContainer() {
                 setStreamingContent(streamingContentRef.current)
               }
               if (delta?.image) {
+                console.log('Received image:', delta.image.mimeType, 'data length:', delta.image.data?.length)
                 streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
                 setStreamingImages(streamingImagesRef.current)
               }
-            } catch {
-              // SSE chunks may be partial JSON
+            } catch (e) {
+              console.log('JSON parse error:', e, 'data length:', data.length)
             }
+          }
+        }
+      }
+
+      // Process any remaining data in buffer
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6)
+        if (data && data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta
+            if (delta?.image) {
+              console.log('Received image from buffer:', delta.image.mimeType)
+              streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
+              setStreamingImages(streamingImagesRef.current)
+            }
+          } catch {
+            // Ignore
           }
         }
       }
