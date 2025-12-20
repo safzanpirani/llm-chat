@@ -511,7 +511,7 @@ export function ChatContainer() {
                     modelName={model}
                   />
                 )}
-                <div ref={messagesEndRef} className="h-48" />
+                <div ref={messagesEndRef} className="h-24" />
               </>
             )}
           </div>
