@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Streamdown } from 'streamdown'
-import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, Brain, Download } from 'lucide-react'
+import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw } from 'lucide-react'
 
 interface Attachment {
   type: 'image' | 'document'
@@ -23,13 +23,33 @@ interface ChatMessageProps {
   generatedImages?: GeneratedImage[]
   isStreaming?: boolean
   modelName?: string
-  onEdit?: () => void
+  siblingCount?: number
+  siblingIndex?: number
+  onEdit?: (newContent: string) => void
+  onRetry?: () => void
+  onNavigateSibling?: (direction: 'prev' | 'next') => void
 }
 
-export function ChatMessage({ role, content, thinking, attachments, generatedImages, isStreaming, modelName, onEdit }: ChatMessageProps) {
+export function ChatMessage({ 
+  role, 
+  content, 
+  thinking, 
+  attachments, 
+  generatedImages, 
+  isStreaming, 
+  modelName, 
+  siblingCount = 1,
+  siblingIndex = 0,
+  onEdit,
+  onRetry,
+  onNavigateSibling,
+}: ChatMessageProps) {
   const isUser = role === 'user'
   const [isCopied, setIsCopied] = useState(false)
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(true)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState(content)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isClaudeModel = modelName?.toLowerCase().includes('claude')
   const accentColor = isUser 
@@ -38,6 +58,16 @@ export function ChatMessage({ role, content, thinking, attachments, generatedIma
       ? 'border-l-orange-500' 
       : 'border-l-blue-500'
 
+  const hasSiblings = siblingCount > 1
+
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus()
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`
+    }
+  }, [isEditing])
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content)
@@ -45,6 +75,31 @@ export function ChatMessage({ role, content, thinking, attachments, generatedIma
       setTimeout(() => setIsCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy text: ', err)
+    }
+  }
+
+  const handleStartEdit = () => {
+    setEditContent(content)
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditContent(content)
+  }
+
+  const handleSaveEdit = () => {
+    if (editContent.trim() !== content) {
+      onEdit?.(editContent.trim())
+    }
+    setIsEditing(false)
+  }
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleCancelEdit()
+    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      handleSaveEdit()
     }
   }
 
@@ -66,31 +121,57 @@ export function ChatMessage({ role, content, thinking, attachments, generatedIma
       </div>
       <div className="flex-1 space-y-2 overflow-hidden">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold select-none">
-            {isUser ? 'You' : modelName || 'Assistant'}
-          </span>
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-            <button
-              onClick={() => onEdit?.()}
-              className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
-              title="Edit message"
-              aria-label="Edit message"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleCopy}
-              className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
-              title="Copy message"
-              aria-label="Copy message"
-            >
-              {isCopied ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold select-none">
+              {isUser ? 'You' : modelName || 'Assistant'}
+            </span>
+            {hasSiblings && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <button
+                  onClick={() => onNavigateSibling?.('prev')}
+                  disabled={siblingIndex === 0}
+                  className="p-0.5 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                </button>
+                <span>{siblingIndex + 1}/{siblingCount}</span>
+                <button
+                  onClick={() => onNavigateSibling?.('next')}
+                  disabled={siblingIndex === siblingCount - 1}
+                  className="p-0.5 hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </div>
+          {!isStreaming && !isEditing && (
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <button
+                onClick={handleStartEdit}
+                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
+                title="Edit message"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              {!isUser && (
+                <button
+                  onClick={onRetry}
+                  className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
+                  title="Retry"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                onClick={handleCopy}
+                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
+                title="Copy message"
+              >
+                {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          )}
         </div>
 
         {thinking && (
@@ -153,13 +234,48 @@ export function ChatMessage({ role, content, thinking, attachments, generatedIma
             </div>
           )}
           
-          {(isStreaming || !isUser) ? (
-            <Streamdown>{content}</Streamdown>
+          {isEditing ? (
+            <div className="space-y-2">
+              <textarea
+                ref={textareaRef}
+                value={editContent}
+                onChange={(e) => {
+                  setEditContent(e.target.value)
+                  e.target.style.height = 'auto'
+                  e.target.style.height = `${e.target.scrollHeight}px`
+                }}
+                onKeyDown={handleEditKeyDown}
+                className="w-full min-h-[60px] p-3 rounded-lg border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1.5 text-sm bg-muted text-muted-foreground rounded-md hover:bg-muted/80"
+                >
+                  Cancel
+                </button>
+                <span className="ml-auto text-xs text-muted-foreground self-center">
+                  Cmd+Enter to save, Esc to cancel
+                </span>
+              </div>
+            </div>
           ) : (
-            <p className="whitespace-pre-wrap">{content}</p>
+            <>
+              {(isStreaming || !isUser) ? (
+                <Streamdown>{content}</Streamdown>
+              ) : (
+                <p className="whitespace-pre-wrap">{content}</p>
+              )}
+            </>
           )}
           
-          {generatedImages && generatedImages.length > 0 && (
+          {generatedImages && generatedImages.length > 0 && !isEditing && (
             <div className="mt-4 flex flex-wrap gap-3">
               {generatedImages.map((img, i) => (
                 <div key={i} className="group relative">

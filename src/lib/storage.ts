@@ -23,6 +23,8 @@ export interface Message {
     data: string
     mimeType: string
   }>
+  siblings?: Message[]
+  activeSiblingIndex?: number
 }
 
 export interface Session extends SessionMeta {

@@ -71,11 +71,10 @@ export function ChatContainer() {
   }, [])
 
   useEffect(() => {
-    // Only scroll if we're streaming and user hasn't manually scrolled up
     if (isStreaming && !userScrolledRef.current) {
       scrollToBottom('smooth')
     }
-  }, [streamingContent, isStreaming, scrollToBottom])
+  }, [streamingContent, streamingThinking, isStreaming, scrollToBottom])
 
   // Scroll to bottom on new messages (non-streaming)
   useEffect(() => {
@@ -244,6 +243,7 @@ export function ChatContainer() {
       setStreamingThinking('')
       setStreamingImages([])
       abortControllerRef.current = null
+      setTimeout(() => scrollToBottom('auto'), 50)
     }
   }
 
@@ -258,15 +258,166 @@ export function ChatContainer() {
     }
   }
 
-  const handleEditMessage = (messageId: string, content: string) => {
-    const messageIndex = messages.findIndex(m => m.id === messageId)
-    if (messageIndex === -1) return
+  const handleEditMessage = async (messageIndex: number, newContent: string) => {
+    const message = messages[messageIndex]
+    if (!message || !currentSessionId) return
     
-    const truncatedMessages = messages.slice(0, messageIndex)
-    setMessages(truncatedMessages)
+    const updatedMessage = { ...message, content: newContent }
+    const updatedMessages = [...messages]
+    updatedMessages[messageIndex] = updatedMessage
     
-    chatInputRef.current?.setValue(content)
-    chatInputRef.current?.focus()
+    await saveMessages(currentSessionId, updatedMessages)
+  }
+
+  const handleRetryMessage = async (messageIndex: number) => {
+    const message = messages[messageIndex]
+    if (!message || message.role !== 'assistant' || !currentSessionId) return
+    
+    const previousUserMessageIndex = messageIndex - 1
+    if (previousUserMessageIndex < 0) return
+    
+    const previousMessages = messages.slice(0, messageIndex)
+    
+    const existingSiblings = message.siblings || []
+    const currentAsFirstSibling = existingSiblings.length === 0 
+      ? [{ ...message, siblings: undefined, activeSiblingIndex: undefined }]
+      : existingSiblings
+    
+    setMessages(previousMessages)
+    
+    setIsStreaming(true)
+    setStreamingContent('')
+    setStreamingThinking('')
+    setStreamingImages([])
+    streamingContentRef.current = ''
+    streamingThinkingRef.current = ''
+    streamingImagesRef.current = []
+    pendingMessagesRef.current = previousMessages
+    pendingSessionIdRef.current = currentSessionId
+    pendingModelRef.current = model
+    userScrolledRef.current = false
+
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: previousMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            attachments: m.attachments,
+            generatedImages: m.generatedImages,
+          })),
+          ...(isImageModel && {
+            imageConfig: { aspectRatio, resolution },
+          }),
+        }),
+        signal: abortControllerRef.current.signal,
+      })
+
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No reader available')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(data)
+              const delta = parsed.choices?.[0]?.delta
+              
+              if (delta?.thinking) {
+                streamingThinkingRef.current += delta.thinking
+                setStreamingThinking(streamingThinkingRef.current)
+              }
+              if (delta?.content) {
+                streamingContentRef.current += delta.content
+                setStreamingContent(streamingContentRef.current)
+              }
+              if (delta?.image) {
+                streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
+                setStreamingImages(streamingImagesRef.current)
+              }
+            } catch {
+            }
+          }
+        }
+      }
+
+      const newAssistantMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: streamingContentRef.current,
+        thinking: streamingThinkingRef.current || undefined,
+        generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
+        createdAt: new Date().toISOString(),
+        model: model,
+        siblings: [...currentAsFirstSibling],
+        activeSiblingIndex: currentAsFirstSibling.length,
+      }
+
+      const finalMessages = [...previousMessages, newAssistantMessage]
+      await saveMessages(currentSessionId, finalMessages)
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Retry error:', error)
+        const restoredMessages = [...previousMessages, message]
+        setMessages(restoredMessages)
+      }
+    } finally {
+      setIsStreaming(false)
+      setStreamingContent('')
+      setStreamingThinking('')
+      setStreamingImages([])
+      abortControllerRef.current = null
+      setTimeout(() => scrollToBottom('auto'), 50)
+    }
+  }
+
+  const handleNavigateSibling = async (messageIndex: number, direction: 'prev' | 'next') => {
+    const message = messages[messageIndex]
+    if (!message || !message.siblings || message.siblings.length === 0 || !currentSessionId) return
+    
+    const currentIndex = message.activeSiblingIndex ?? message.siblings.length
+    const allVersions = [...message.siblings, { ...message, siblings: undefined, activeSiblingIndex: undefined }]
+    
+    const newIndex = direction === 'prev' 
+      ? Math.max(0, currentIndex - 1)
+      : Math.min(allVersions.length - 1, currentIndex + 1)
+    
+    if (newIndex === currentIndex) return
+    
+    const selectedVersion = allVersions[newIndex]
+    const remainingSiblings = allVersions.filter((_, i) => i !== newIndex)
+    
+    const updatedMessage: Message = {
+      ...selectedVersion,
+      siblings: remainingSiblings,
+      activeSiblingIndex: newIndex,
+    }
+    
+    const updatedMessages = [...messages]
+    updatedMessages[messageIndex] = updatedMessage
+    
+    await saveMessages(currentSessionId, updatedMessages)
   }
 
   const handleNewSession = () => {
@@ -329,18 +480,27 @@ export function ChatContainer() {
               </div>
             ) : (
               <>
-                {messages.map((message) => (
-                  <ChatMessage
-                    key={message.id}
-                    role={message.role as 'user' | 'assistant'}
-                    content={message.content}
-                    thinking={message.thinking}
-                    attachments={message.attachments}
-                    generatedImages={message.generatedImages}
-                    modelName={message.model}
-                    onEdit={() => handleEditMessage(message.id, message.content)}
-                  />
-                ))}
+                {messages.map((message, index) => {
+                  const siblingCount = message.siblings ? message.siblings.length + 1 : 1
+                  const siblingIndex = message.activeSiblingIndex ?? (siblingCount - 1)
+                  
+                  return (
+                    <ChatMessage
+                      key={message.id}
+                      role={message.role as 'user' | 'assistant'}
+                      content={message.content}
+                      thinking={message.thinking}
+                      attachments={message.attachments}
+                      generatedImages={message.generatedImages}
+                      modelName={message.model}
+                      siblingCount={siblingCount}
+                      siblingIndex={siblingIndex}
+                      onEdit={(newContent) => handleEditMessage(index, newContent)}
+                      onRetry={message.role === 'assistant' ? () => handleRetryMessage(index) : undefined}
+                      onNavigateSibling={siblingCount > 1 ? (dir) => handleNavigateSibling(index, dir) : undefined}
+                    />
+                  )
+                })}
                 {(streamingContent || streamingThinking || streamingImages.length > 0) && (
                   <ChatMessage
                     role="assistant"
@@ -351,7 +511,7 @@ export function ChatContainer() {
                     modelName={model}
                   />
                 )}
-                <div ref={messagesEndRef} className="h-4" />
+                <div ref={messagesEndRef} className="h-48" />
               </>
             )}
           </div>
