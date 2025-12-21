@@ -26,8 +26,13 @@ export function useSessions() {
   const loadSessions = useCallback(async () => {
     try {
       const data = await storage.getSessions()
-      setSessions(data)
-      return data
+      const sorted = [...data].sort((a, b) => {
+        const aTime = a.updatedAt || a.createdAt
+        const bTime = b.updatedAt || b.createdAt
+        return (bTime || '').localeCompare(aTime || '')
+      })
+      setSessions(sorted)
+      return sorted
     } catch (error) {
       console.error('Failed to load sessions:', error)
       return []
@@ -93,15 +98,19 @@ export function useSessions() {
   const saveMessages = useCallback(async (sessionId: string, newMessages: Message[]) => {
     try {
       const title = newMessages[0]?.content.slice(0, 20) || 'New Chat'
+      const updatedAt = new Date().toISOString()
       await storage.updateSession(sessionId, { messages: newMessages, title })
       setMessages(newMessages)
-      setSessions((prev) =>
-        prev.map((s) =>
+      setSessions((prev) => {
+        const updated = prev.map((s) =>
           s.id === sessionId
-            ? { ...s, title, updatedAt: new Date().toISOString() }
+            ? { ...s, title, updatedAt }
             : s
         )
-      )
+        const active = updated.find((s) => s.id === sessionId)
+        const rest = updated.filter((s) => s.id !== sessionId)
+        return active ? [active, ...rest] : updated
+      })
     } catch (error) {
       console.error('Failed to save messages:', error)
     }

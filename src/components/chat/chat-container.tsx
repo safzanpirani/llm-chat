@@ -180,7 +180,7 @@ export function ChatContainer() {
     return () => document.removeEventListener('paste', handleGlobalPaste)
   }, [])
 
-  const sessionUsage = useMemo((): TokenUsage => {
+  const latestUsage = useMemo((): TokenUsage => {
     if (streamingUsage) {
       return streamingUsage
     }
@@ -206,6 +206,52 @@ export function ChatContainer() {
       cacheWriteTokens: 0,
       totalTokens: 0,
     }
+  }, [messages, streamingUsage])
+
+  const totalUsage = useMemo((): TokenUsage => {
+    const total: TokenUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+    }
+
+    const seen = new Set<string>()
+    const addUsage = (msg?: Message) => {
+      if (!msg?.usage || seen.has(msg.id)) return
+      seen.add(msg.id)
+      total.inputTokens += msg.usage.inputTokens
+      total.outputTokens += msg.usage.outputTokens
+      total.cacheReadTokens = (total.cacheReadTokens || 0) + (msg.usage.cacheReadTokens || 0)
+      total.cacheWriteTokens = (total.cacheWriteTokens || 0) + (msg.usage.cacheWriteTokens || 0)
+      total.totalTokens += msg.usage.totalTokens
+    }
+
+    for (const msg of messages) {
+      if (msg.variations && msg.variations.length > 0) {
+        for (const variation of msg.variations) {
+          addUsage(variation)
+        }
+      } else {
+        addUsage(msg)
+      }
+      if (msg.siblings && msg.siblings.length > 0) {
+        for (const sibling of msg.siblings) {
+          addUsage(sibling)
+        }
+      }
+    }
+
+    if (streamingUsage) {
+      total.inputTokens += streamingUsage.inputTokens
+      total.outputTokens += streamingUsage.outputTokens
+      total.cacheReadTokens = (total.cacheReadTokens || 0) + (streamingUsage.cacheReadTokens || 0)
+      total.cacheWriteTokens = (total.cacheWriteTokens || 0) + (streamingUsage.cacheWriteTokens || 0)
+      total.totalTokens += streamingUsage.totalTokens
+    }
+
+    return total
   }, [messages, streamingUsage])
 
   const streamSingleResponse = async (
@@ -976,8 +1022,8 @@ export function ChatContainer() {
             )}
           </div>
           <div className="flex items-center gap-3">
-            {sessionUsage.totalTokens > 0 && (
-              <TokenTracker usage={sessionUsage} model={model} />
+            {(latestUsage.totalTokens > 0 || totalUsage.totalTokens > 0) && (
+              <TokenTracker latestUsage={latestUsage} totalUsage={totalUsage} model={model} />
             )}
             <ThemeToggle />
           </div>
