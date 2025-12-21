@@ -221,16 +221,16 @@ function convertClaudeSSEToOpenAI(chunk: string): ConvertResult {
         }
       }
       
-      // message_delta contains final output tokens
+      // message_delta contains final output tokens (and input tokens from this proxy)
       if (parsed.type === 'message_delta' && parsed.usage) {
         const u = parsed.usage
         console.log('[Claude usage] message_delta:', JSON.stringify(u))
         usage = {
-          inputTokens: usage?.inputTokens || 0,
+          inputTokens: u.input_tokens || usage?.inputTokens || 0,
           outputTokens: u.output_tokens || 0,
-          cacheReadTokens: usage?.cacheReadTokens,
-          cacheWriteTokens: usage?.cacheWriteTokens,
-          totalTokens: (usage?.inputTokens || 0) + (u.output_tokens || 0),
+          cacheReadTokens: u.cache_read_input_tokens || usage?.cacheReadTokens,
+          cacheWriteTokens: u.cache_creation_input_tokens || usage?.cacheWriteTokens,
+          totalTokens: (u.input_tokens || usage?.inputTokens || 0) + (u.output_tokens || 0),
         }
       }
       
