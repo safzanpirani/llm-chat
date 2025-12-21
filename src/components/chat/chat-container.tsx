@@ -181,33 +181,31 @@ export function ChatContainer() {
   }, [])
 
   const sessionUsage = useMemo((): TokenUsage => {
-    const baseUsage: TokenUsage = {
+    if (streamingUsage) {
+      return streamingUsage
+    }
+
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i]
+      if (msg.usage) {
+        return msg.usage
+      }
+      if (msg.variations && msg.variations.length > 0) {
+        const activeIndex = msg.activeVariationIndex ?? 0
+        const activeVariation = msg.variations[activeIndex]
+        if (activeVariation?.usage) {
+          return activeVariation.usage
+        }
+      }
+    }
+
+    return {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       totalTokens: 0,
     }
-    
-    for (const msg of messages) {
-      if (msg.usage) {
-        baseUsage.inputTokens += msg.usage.inputTokens
-        baseUsage.outputTokens += msg.usage.outputTokens
-        baseUsage.cacheReadTokens = (baseUsage.cacheReadTokens || 0) + (msg.usage.cacheReadTokens || 0)
-        baseUsage.cacheWriteTokens = (baseUsage.cacheWriteTokens || 0) + (msg.usage.cacheWriteTokens || 0)
-        baseUsage.totalTokens += msg.usage.totalTokens
-      }
-    }
-    
-    if (streamingUsage) {
-      baseUsage.inputTokens += streamingUsage.inputTokens
-      baseUsage.outputTokens += streamingUsage.outputTokens
-      baseUsage.cacheReadTokens = (baseUsage.cacheReadTokens || 0) + (streamingUsage.cacheReadTokens || 0)
-      baseUsage.cacheWriteTokens = (baseUsage.cacheWriteTokens || 0) + (streamingUsage.cacheWriteTokens || 0)
-      baseUsage.totalTokens += streamingUsage.totalTokens
-    }
-    
-    return baseUsage
   }, [messages, streamingUsage])
 
   const streamSingleResponse = async (
