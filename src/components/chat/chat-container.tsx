@@ -87,6 +87,70 @@ export function ChatContainer() {
     }
   }, [messages, isStreaming, scrollToBottom])
 
+  // Global keyboard handler - focus input when typing anywhere
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ignore if already in an input/textarea or if modifier keys are pressed (except shift)
+      const target = e.target as HTMLElement
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey
+      ) {
+        return
+      }
+
+      // Ignore non-printable keys
+      if (e.key.length !== 1 && e.key !== 'Backspace') {
+        return
+      }
+
+      // Focus the chat input
+      chatInputRef.current?.focus()
+    }
+
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
+  // Global paste handler - capture image pastes anywhere
+  useEffect(() => {
+    const handleGlobalPaste = async (e: ClipboardEvent) => {
+      // Ignore if already in an input/textarea
+      const target = e.target as HTMLElement
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return
+      }
+
+      const items = e.clipboardData?.items
+      if (!items) return
+
+      const imageFiles: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile()
+          if (file) imageFiles.push(file)
+        }
+      }
+
+      if (imageFiles.length > 0) {
+        e.preventDefault()
+        await chatInputRef.current?.addFiles(imageFiles)
+        chatInputRef.current?.focus()
+      }
+    }
+
+    document.addEventListener('paste', handleGlobalPaste)
+    return () => document.removeEventListener('paste', handleGlobalPaste)
+  }, [])
+
   const sessionUsage = useMemo((): TokenUsage => {
     const baseUsage: TokenUsage = {
       inputTokens: 0,

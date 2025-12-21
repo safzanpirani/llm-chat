@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 export interface ChatInputHandle {
   setValue: (value: string) => void
   focus: () => void
+  addFiles: (files: FileList | File[]) => Promise<void>
 }
 
 export interface Attachment {
@@ -61,6 +62,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       },
       focus: () => {
         textareaRef.current?.focus()
+      },
+      addFiles: async (files: FileList | File[]) => {
+        const fileArray = Array.from(files)
+        const newAttachments = await Promise.all(fileArray.map(fileToAttachment))
+        setAttachments(prev => [...prev, ...newAttachments])
       }
     }))
 
