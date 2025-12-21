@@ -240,6 +240,7 @@ export function ChatContainer() {
               setStreamingUsage(parsed.usage)
             }
             if (delta?.image) {
+              console.log('Received image with thoughtSignature:', !!delta.image.thoughtSignature)
               streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
               setStreamingImages(streamingImagesRef.current)
             }

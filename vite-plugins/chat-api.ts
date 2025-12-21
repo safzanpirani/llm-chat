@@ -382,8 +382,14 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Connection', 'keep-alive')
 
             if (isImageModel && !isClaudeModel) {
+              console.log('Image generation request - messages count:', messages.length)
+              console.log('Messages with images:', messages.filter(m => m.generatedImages?.length).length)
+              
               const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }; error?: { message: string } }
               const generationTimeMs = Date.now() - requestStartTime
+              
+              // Debug: log full upstream response
+              console.log('Image generation upstream response:', JSON.stringify(jsonResponse, null, 2))
               
               if (jsonResponse.error) {
                 console.error('Image API error:', jsonResponse.error)
