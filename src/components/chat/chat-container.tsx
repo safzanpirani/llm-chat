@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import React from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChatMessage } from './chat-message'
@@ -6,9 +6,10 @@ import { ChatInput, type ChatInputHandle } from './chat-input'
 import { ModelSelector } from './model-selector'
 import { SessionSidebar } from './session-sidebar'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { TokenTracker } from './token-tracker'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
-import type { Message, GeneratedImage } from '@/lib/storage'
+import type { Message, GeneratedImage, TokenUsage } from '@/lib/storage'
 import type { Attachment } from './chat-input'
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] as const
@@ -35,6 +36,7 @@ export function ChatContainer() {
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
   const [streamingImages, setStreamingImages] = useState<GeneratedImage[]>([])
+  const [streamingUsage, setStreamingUsage] = useState<TokenUsage | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingContentRef = useRef('')
   const streamingThinkingRef = useRef('')
@@ -47,6 +49,7 @@ export function ChatContainer() {
   const chatInputRef = useRef<ChatInputHandle>(null)
   const userScrolledRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  const streamingUsageRef = useRef<TokenUsage | null>(null)
 
   // Improved scroll logic
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -83,6 +86,36 @@ export function ChatContainer() {
     }
   }, [messages, isStreaming, scrollToBottom])
 
+  const sessionUsage = useMemo((): TokenUsage => {
+    const baseUsage: TokenUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+    }
+    
+    for (const msg of messages) {
+      if (msg.usage) {
+        baseUsage.inputTokens += msg.usage.inputTokens
+        baseUsage.outputTokens += msg.usage.outputTokens
+        baseUsage.cacheReadTokens = (baseUsage.cacheReadTokens || 0) + (msg.usage.cacheReadTokens || 0)
+        baseUsage.cacheWriteTokens = (baseUsage.cacheWriteTokens || 0) + (msg.usage.cacheWriteTokens || 0)
+        baseUsage.totalTokens += msg.usage.totalTokens
+      }
+    }
+    
+    if (streamingUsage) {
+      baseUsage.inputTokens += streamingUsage.inputTokens
+      baseUsage.outputTokens += streamingUsage.outputTokens
+      baseUsage.cacheReadTokens = (baseUsage.cacheReadTokens || 0) + (streamingUsage.cacheReadTokens || 0)
+      baseUsage.cacheWriteTokens = (baseUsage.cacheWriteTokens || 0) + (streamingUsage.cacheWriteTokens || 0)
+      baseUsage.totalTokens += streamingUsage.totalTokens
+    }
+    
+    return baseUsage
+  }, [messages, streamingUsage])
+
   const handleSend = async (content: string, attachments?: Attachment[]) => {
     // Reset scroll state on new message
     userScrolledRef.current = false
@@ -113,6 +146,7 @@ export function ChatContainer() {
     setStreamingContent('')
     setStreamingThinking('')
     setStreamingImages([])
+    setStreamingUsage(null)
     streamingContentRef.current = ''
     streamingThinkingRef.current = ''
     streamingImagesRef.current = []
@@ -172,6 +206,10 @@ export function ChatContainer() {
               const parsed = JSON.parse(data)
               const delta = parsed.choices?.[0]?.delta
               
+              if (parsed.usage) {
+                streamingUsageRef.current = parsed.usage
+                setStreamingUsage(parsed.usage)
+              }
               if (delta?.thinking) {
                 streamingThinkingRef.current += delta.thinking
                 setStreamingThinking(streamingThinkingRef.current)
@@ -197,6 +235,10 @@ export function ChatContainer() {
           try {
             const parsed = JSON.parse(data)
             const delta = parsed.choices?.[0]?.delta
+            if (parsed.usage) {
+              streamingUsageRef.current = parsed.usage
+              setStreamingUsage(parsed.usage)
+            }
             if (delta?.image) {
               streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
               setStreamingImages(streamingImagesRef.current)
@@ -215,6 +257,7 @@ export function ChatContainer() {
         generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
         createdAt: new Date().toISOString(),
         model: model,
+        usage: streamingUsageRef.current || undefined,
       }
 
       const finalMessages = [...newMessages, assistantMessage]
@@ -225,6 +268,8 @@ export function ChatContainer() {
         setStreamingContent('')
         setStreamingThinking('')
         setStreamingImages([])
+        setStreamingUsage(null)
+        streamingUsageRef.current = null
       }, 0)
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
@@ -237,6 +282,7 @@ export function ChatContainer() {
             generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
             createdAt: new Date().toISOString(),
             model: pendingModelRef.current,
+            usage: streamingUsageRef.current || undefined,
           }
           const finalMessages = [...pendingMessagesRef.current, assistantMessage]
           await saveMessages(pendingSessionIdRef.current!, finalMessages)
@@ -246,6 +292,8 @@ export function ChatContainer() {
           setStreamingContent('')
           setStreamingThinking('')
           setStreamingImages([])
+          setStreamingUsage(null)
+          streamingUsageRef.current = null
         }, 0)
       } else {
         console.error('Chat error:', error)
@@ -253,6 +301,8 @@ export function ChatContainer() {
         setStreamingContent('')
         setStreamingThinking('')
         setStreamingImages([])
+        setStreamingUsage(null)
+        streamingUsageRef.current = null
       }
     } finally {
       abortControllerRef.current = null
@@ -301,9 +351,11 @@ export function ChatContainer() {
     setStreamingContent('')
     setStreamingThinking('')
     setStreamingImages([])
+    setStreamingUsage(null)
     streamingContentRef.current = ''
     streamingThinkingRef.current = ''
     streamingImagesRef.current = []
+    streamingUsageRef.current = null
     pendingMessagesRef.current = previousMessages
     pendingSessionIdRef.current = currentSessionId
     pendingModelRef.current = model
@@ -356,6 +408,10 @@ export function ChatContainer() {
               const parsed = JSON.parse(data)
               const delta = parsed.choices?.[0]?.delta
               
+              if (parsed.usage) {
+                streamingUsageRef.current = parsed.usage
+                setStreamingUsage(parsed.usage)
+              }
               if (delta?.thinking) {
                 streamingThinkingRef.current += delta.thinking
                 setStreamingThinking(streamingThinkingRef.current)
@@ -384,6 +440,7 @@ export function ChatContainer() {
         model: model,
         siblings: [...currentAsFirstSibling],
         activeSiblingIndex: currentAsFirstSibling.length,
+        usage: streamingUsageRef.current || undefined,
       }
 
       const finalMessages = [...previousMessages, newAssistantMessage]
@@ -394,6 +451,8 @@ export function ChatContainer() {
         setStreamingContent('')
         setStreamingThinking('')
         setStreamingImages([])
+        setStreamingUsage(null)
+        streamingUsageRef.current = null
       }, 0)
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -484,7 +543,12 @@ export function ChatContainer() {
               </>
             )}
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-3">
+            {sessionUsage.totalTokens > 0 && (
+              <TokenTracker usage={sessionUsage} model={model} />
+            )}
+            <ThemeToggle />
+          </div>
         </header>
         <ScrollArea 
           className="flex-1" 

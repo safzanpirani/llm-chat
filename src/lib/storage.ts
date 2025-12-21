@@ -16,6 +16,14 @@ export interface GeneratedImage {
   thoughtSignature?: string
 }
 
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  totalTokens: number
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -32,6 +40,7 @@ export interface Message {
   }>
   siblings?: Message[]
   activeSiblingIndex?: number
+  usage?: TokenUsage
 }
 
 export interface Session extends SessionMeta {

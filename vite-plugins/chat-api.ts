@@ -131,9 +131,23 @@ function convertToGoogleFormat(
   }
 }
 
-function convertGoogleSSEToOpenAI(chunk: string): string {
+interface UsageData {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  totalTokens: number
+}
+
+interface ConvertResult {
+  content: string
+  usage?: UsageData
+}
+
+function convertGoogleSSEToOpenAI(chunk: string): ConvertResult {
   const lines = chunk.split('\n')
   const results: string[] = []
+  let usage: UsageData | undefined
 
   for (const line of lines) {
     if (!line.startsWith('data: ')) continue
@@ -143,6 +157,18 @@ function convertGoogleSSEToOpenAI(chunk: string): string {
     try {
       const parsed = JSON.parse(data)
       const parts = parsed.candidates?.[0]?.content?.parts || []
+      
+      if (parsed.usageMetadata) {
+        const u = parsed.usageMetadata
+        console.log('[Gemini usage] usageMetadata:', JSON.stringify(u))
+        const thinkingTokens = u.thoughtsTokenCount || 0
+        usage = {
+          inputTokens: u.promptTokenCount || 0,
+          outputTokens: (u.candidatesTokenCount || 0) + thinkingTokens,
+          cacheReadTokens: u.cachedContentTokenCount || undefined,
+          totalTokens: u.totalTokenCount || 0,
+        }
+      }
       
       for (const part of parts) {
         if (part.thought === true && part.text) {
@@ -166,12 +192,13 @@ function convertGoogleSSEToOpenAI(chunk: string): string {
     }
   }
 
-  return results.join('')
+  return { content: results.join(''), usage }
 }
 
-function convertClaudeSSEToOpenAI(chunk: string): string {
+function convertClaudeSSEToOpenAI(chunk: string): ConvertResult {
   const lines = chunk.split('\n')
   const results: string[] = []
+  let usage: UsageData | undefined
 
   for (const line of lines) {
     if (!line.startsWith('data: ')) continue
@@ -180,6 +207,45 @@ function convertClaudeSSEToOpenAI(chunk: string): string {
 
     try {
       const parsed = JSON.parse(data)
+      
+      // message_start contains input tokens
+      if (parsed.type === 'message_start' && parsed.message?.usage) {
+        const u = parsed.message.usage
+        console.log('[Claude usage] message_start:', JSON.stringify(u))
+        usage = {
+          inputTokens: u.input_tokens || 0,
+          outputTokens: u.output_tokens || 0,
+          cacheReadTokens: u.cache_read_input_tokens || undefined,
+          cacheWriteTokens: u.cache_creation_input_tokens || undefined,
+          totalTokens: (u.input_tokens || 0) + (u.output_tokens || 0),
+        }
+      }
+      
+      // message_delta contains final output tokens
+      if (parsed.type === 'message_delta' && parsed.usage) {
+        const u = parsed.usage
+        console.log('[Claude usage] message_delta:', JSON.stringify(u))
+        usage = {
+          inputTokens: usage?.inputTokens || 0,
+          outputTokens: u.output_tokens || 0,
+          cacheReadTokens: usage?.cacheReadTokens,
+          cacheWriteTokens: usage?.cacheWriteTokens,
+          totalTokens: (usage?.inputTokens || 0) + (u.output_tokens || 0),
+        }
+      }
+      
+      // Fallback: capture usage from any event that has it at top level
+      if (parsed.usage && !usage) {
+        const u = parsed.usage
+        console.log('[Claude usage] fallback:', JSON.stringify(u))
+        usage = {
+          inputTokens: u.input_tokens || u.inputTokens || 0,
+          outputTokens: u.output_tokens || u.outputTokens || 0,
+          cacheReadTokens: u.cache_read_input_tokens || u.cacheReadTokens || undefined,
+          cacheWriteTokens: u.cache_creation_input_tokens || u.cacheWriteTokens || undefined,
+          totalTokens: (u.input_tokens || u.inputTokens || 0) + (u.output_tokens || u.outputTokens || 0),
+        }
+      }
       
       if (parsed.type === 'content_block_delta') {
         if (parsed.delta?.type === 'thinking_delta' && parsed.delta?.thinking) {
@@ -197,7 +263,7 @@ function convertClaudeSSEToOpenAI(chunk: string): string {
     }
   }
 
-  return results.join('')
+  return { content: results.join(''), usage }
 }
 
 export function chatApiPlugin(): Plugin {
@@ -316,7 +382,7 @@ export function chatApiPlugin(): Plugin {
             res.setHeader('Connection', 'keep-alive')
 
             if (isImageModel && !isClaudeModel) {
-              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }>; error?: { message: string } }
+              const jsonResponse = await upstreamRes.json() as { candidates?: Array<{ content?: { parts?: Array<Record<string, unknown>> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number }; error?: { message: string } }
               const generationTimeMs = Date.now() - requestStartTime
               
               if (jsonResponse.error) {
@@ -363,6 +429,15 @@ export function chatApiPlugin(): Plugin {
                 }
               }
               
+              if (jsonResponse.usageMetadata) {
+                const u = jsonResponse.usageMetadata
+                res.write(`data: ${JSON.stringify({ usage: {
+                  inputTokens: u.promptTokenCount || 0,
+                  outputTokens: u.candidatesTokenCount || 0,
+                  totalTokens: u.totalTokenCount || 0,
+                } })}\n\n`)
+              }
+              
               res.write('data: [DONE]\n\n')
               res.end()
               return
@@ -375,6 +450,7 @@ export function chatApiPlugin(): Plugin {
             }
 
             const decoder = new TextDecoder()
+            let accumulatedUsage: UsageData | undefined
             
             const processStream = async () => {
               try {
@@ -384,16 +460,31 @@ export function chatApiPlugin(): Plugin {
                   const chunk = decoder.decode(value, { stream: true })
                   
                   if (isClaudeModel) {
-                    const converted = convertClaudeSSEToOpenAI(chunk)
+                    const { content: converted, usage } = convertClaudeSSEToOpenAI(chunk)
+                    if (usage) {
+                      accumulatedUsage = {
+                        inputTokens: usage.inputTokens || accumulatedUsage?.inputTokens || 0,
+                        outputTokens: usage.outputTokens || accumulatedUsage?.outputTokens || 0,
+                        cacheReadTokens: usage.cacheReadTokens ?? accumulatedUsage?.cacheReadTokens,
+                        cacheWriteTokens: usage.cacheWriteTokens ?? accumulatedUsage?.cacheWriteTokens,
+                        totalTokens: (usage.inputTokens || accumulatedUsage?.inputTokens || 0) + (usage.outputTokens || accumulatedUsage?.outputTokens || 0),
+                      }
+                    }
                     if (converted) {
                       res.write(converted)
                     }
                   } else {
-                    const converted = convertGoogleSSEToOpenAI(chunk)
+                    const { content: converted, usage } = convertGoogleSSEToOpenAI(chunk)
+                    if (usage) {
+                      accumulatedUsage = usage
+                    }
                     if (converted) {
                       res.write(converted)
                     }
                   }
+                }
+                if (accumulatedUsage) {
+                  res.write(`data: ${JSON.stringify({ usage: accumulatedUsage })}\n\n`)
                 }
                 res.write('data: [DONE]\n\n')
               } finally {
