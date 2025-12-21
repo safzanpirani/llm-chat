@@ -55,6 +55,21 @@ export function useSessions() {
     }
   }, [currentSessionId])
 
+  const renameSession = useCallback(async (id: string, newTitle: string) => {
+    try {
+      await storage.updateSession(id, { title: newTitle })
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? { ...s, title: newTitle, updatedAt: new Date().toISOString() }
+            : s
+        )
+      )
+    } catch (error) {
+      console.error('Failed to rename session:', error)
+    }
+  }, [])
+
   const saveMessages = useCallback(async (sessionId: string, newMessages: Message[]) => {
     try {
       const title = newMessages[0]?.content.slice(0, 50) || 'New Chat'
@@ -84,6 +99,7 @@ export function useSessions() {
     loadSession,
     createSession,
     deleteSession,
+    renameSession,
     saveMessages,
     setMessages,
   }

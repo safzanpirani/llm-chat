@@ -25,6 +25,7 @@ export function ChatContainer() {
     loadSession,
     createSession,
     deleteSession,
+    renameSession,
     saveMessages,
     setMessages,
   } = useSessions()
@@ -510,6 +511,7 @@ export function ChatContainer() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
       />
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b px-4 py-3 gap-3">
