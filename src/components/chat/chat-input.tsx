@@ -208,7 +208,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               size="icon"
               className="shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => fileInputRef.current?.click()}
-              disabled={disabled || isLoading}
+              disabled={disabled}
             >
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -220,7 +220,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder="Type a message..."
-              disabled={disabled || isLoading}
+              disabled={disabled}
               className={cn(
                 'min-h-[44px] max-h-[400px] resize-none',
                 'focus-visible:ring-1'

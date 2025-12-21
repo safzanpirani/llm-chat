@@ -51,6 +51,7 @@ export function ChatContainer() {
   const userScrolledRef = useRef(false)
   const lastScrollTopRef = useRef(0)
   const streamingUsageRef = useRef<TokenUsage | null>(null)
+  const suppressAutoScrollRef = useRef(false)
 
   // Improved scroll logic
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -83,6 +84,10 @@ export function ChatContainer() {
   // Scroll to bottom on new messages (non-streaming)
   useEffect(() => {
     if (!isStreaming) {
+      if (suppressAutoScrollRef.current) {
+        suppressAutoScrollRef.current = false
+        return
+      }
       scrollToBottom('auto') // Instant scroll for page load/navigation
     }
   }, [messages, isStreaming, scrollToBottom])
@@ -386,6 +391,28 @@ export function ChatContainer() {
     }
   }
 
+  const buildOrderedVersions = (message: Message) => {
+    const baseVersion: Message = { ...message, siblings: undefined, activeSiblingIndex: undefined }
+    const allVersions = [...(message.siblings ?? []), baseVersion]
+    const seen = new Set<string>()
+    const uniqueVersions: Message[] = []
+    for (const version of allVersions) {
+      if (!seen.has(version.id)) {
+        seen.add(version.id)
+        uniqueVersions.push(version)
+      }
+    }
+    return uniqueVersions
+      .map((version, index) => ({ version, index }))
+      .sort((a, b) => {
+        const aTime = a.version.createdAt ?? ''
+        const bTime = b.version.createdAt ?? ''
+        if (aTime === bTime) return a.index - b.index
+        return aTime.localeCompare(bTime)
+      })
+      .map(({ version }) => version)
+  }
+
   const handleEditMessage = async (messageIndex: number, newContent: string) => {
     const message = messages[messageIndex]
     if (!message || !currentSessionId) return
@@ -405,12 +432,9 @@ export function ChatContainer() {
     if (previousUserMessageIndex < 0) return
     
     const previousMessages = messages.slice(0, messageIndex)
-    
-    const existingSiblings = message.siblings || []
-    const currentAsFirstSibling = existingSiblings.length === 0 
-      ? [{ ...message, siblings: undefined, activeSiblingIndex: undefined }]
-      : existingSiblings
-    
+
+    const orderedVersions = buildOrderedVersions(message)
+
     setMessages(previousMessages)
     
     setIsStreaming(true)
@@ -504,8 +528,8 @@ export function ChatContainer() {
         generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
         createdAt: new Date().toISOString(),
         model: model,
-        siblings: [...currentAsFirstSibling],
-        activeSiblingIndex: currentAsFirstSibling.length,
+        siblings: [...orderedVersions],
+        activeSiblingIndex: orderedVersions.length,
         usage: streamingUsageRef.current || undefined,
       }
 
@@ -538,29 +562,55 @@ export function ChatContainer() {
   const handleNavigateSibling = async (messageIndex: number, direction: 'prev' | 'next') => {
     const message = messages[messageIndex]
     if (!message || !message.siblings || message.siblings.length === 0 || !currentSessionId) return
-    
-    const currentIndex = message.activeSiblingIndex ?? message.siblings.length
-    const allVersions = [...message.siblings, { ...message, siblings: undefined, activeSiblingIndex: undefined }]
-    
-    const newIndex = direction === 'prev' 
+
+    const orderedVersions = buildOrderedVersions(message)
+    const currentIndex = orderedVersions.findIndex((version) => version.id === message.id)
+    if (currentIndex < 0) return
+
+    const newIndex = direction === 'prev'
       ? Math.max(0, currentIndex - 1)
-      : Math.min(allVersions.length - 1, currentIndex + 1)
-    
+      : Math.min(orderedVersions.length - 1, currentIndex + 1)
+
     if (newIndex === currentIndex) return
-    
-    const selectedVersion = allVersions[newIndex]
-    const remainingSiblings = allVersions.filter((_, i) => i !== newIndex)
-    
+
+    const selectedVersion = orderedVersions[newIndex]
+    const remainingSiblings = orderedVersions.filter((_, i) => i !== newIndex)
+
     const updatedMessage: Message = {
       ...selectedVersion,
       siblings: remainingSiblings,
       activeSiblingIndex: newIndex,
     }
-    
+
     const updatedMessages = [...messages]
     updatedMessages[messageIndex] = updatedMessage
-    
+
+    suppressAutoScrollRef.current = true
     await saveMessages(currentSessionId, updatedMessages)
+  }
+
+  const handleDeleteMessage = async (messageIndex: number) => {
+    if (!currentSessionId) return
+    const updatedMessages = messages.filter((_, i) => i !== messageIndex)
+    await saveMessages(currentSessionId, updatedMessages)
+  }
+
+  const handleAddMessageBefore = (messageIndex: number, role: 'user' | 'assistant') => {
+    if (!currentSessionId) return
+    const newMessage: Message = {
+      id: crypto.randomUUID(),
+      role,
+      content: '',
+      createdAt: new Date().toISOString(),
+      ...(role === 'assistant' && { model }),
+    }
+    const updatedMessages = [
+      ...messages.slice(0, messageIndex),
+      newMessage,
+      ...messages.slice(messageIndex),
+    ]
+    setMessages(updatedMessages)
+    // Don't save yet - user needs to edit the empty message
   }
 
   const handleNewSession = () => {
@@ -583,15 +633,13 @@ export function ChatContainer() {
             <ModelSelector
               value={model}
               onChange={setModel}
-              disabled={isStreaming}
             />
             {IMAGE_GENERATION_MODELS.includes(model) && (
               <>
                 <select
                   value={aspectRatio}
                   onChange={(e) => setAspectRatio(e.target.value as typeof ASPECT_RATIOS[number])}
-                  disabled={isStreaming}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 >
                   {ASPECT_RATIOS.map((ar) => (
                     <option key={ar} value={ar}>{ar}</option>
@@ -600,8 +648,7 @@ export function ChatContainer() {
                 <select
                   value={resolution}
                   onChange={(e) => setResolution(e.target.value as typeof RESOLUTIONS[number])}
-                  disabled={isStreaming}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 >
                   {RESOLUTIONS.map((res) => (
                     <option key={res} value={res}>{res}</option>
@@ -647,6 +694,8 @@ export function ChatContainer() {
                       onEdit={(newContent) => handleEditMessage(index, newContent)}
                       onRetry={message.role === 'assistant' ? () => handleRetryMessage(index) : undefined}
                       onNavigateSibling={siblingCount > 1 ? (dir) => handleNavigateSibling(index, dir) : undefined}
+                      onDelete={() => handleDeleteMessage(index)}
+                      onAddBefore={() => handleAddMessageBefore(index, message.role as 'user' | 'assistant')}
                     />
                   )
                 })}

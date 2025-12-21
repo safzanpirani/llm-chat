@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Streamdown } from 'streamdown'
-import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw } from 'lucide-react'
+import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw, Trash2, Plus } from 'lucide-react'
 import { Lightbox } from '@/components/ui/lightbox'
 import type { GeneratedImage } from '@/lib/storage'
 
@@ -25,6 +25,8 @@ interface ChatMessageProps {
   onEdit?: (newContent: string) => void
   onRetry?: () => void
   onNavigateSibling?: (direction: 'prev' | 'next') => void
+  onDelete?: () => void
+  onAddBefore?: (role: 'user' | 'assistant') => void
 }
 
 export function ChatMessage({ 
@@ -40,6 +42,8 @@ export function ChatMessage({
   onEdit,
   onRetry,
   onNavigateSibling,
+  onDelete,
+  onAddBefore,
 }: ChatMessageProps) {
   const isUser = role === 'user'
   const [isCopied, setIsCopied] = useState(false)
@@ -47,6 +51,7 @@ export function ChatMessage({
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(content)
   const [lightboxImage, setLightboxImage] = useState<GeneratedImage | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isClaudeModel = modelName?.toLowerCase().includes('claude')
@@ -146,6 +151,13 @@ export function ChatMessage({
           {!isStreaming && !isEditing && (
             <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
               <button
+                onClick={() => onAddBefore?.(isUser ? 'user' : 'assistant')}
+                className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
+                title="Add message before"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+              <button
                 onClick={handleStartEdit}
                 className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
                 title="Edit message"
@@ -168,9 +180,37 @@ export function ChatMessage({
               >
                 {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="p-1 text-muted-foreground hover:text-destructive rounded hover:bg-background/50"
+                title="Delete message"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
         </div>
+
+        {showDeleteConfirm && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive">Delete this message?</span>
+            <button
+              onClick={() => {
+                onDelete?.()
+                setShowDeleteConfirm(false)
+              }}
+              className="px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/90"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-2 py-1 text-xs bg-muted text-muted-foreground rounded hover:bg-muted/80"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
         {thinking && (
           <div className="rounded-lg border border-border/50 bg-muted/30 overflow-hidden">

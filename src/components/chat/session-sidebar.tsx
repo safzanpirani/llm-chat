@@ -149,7 +149,7 @@ export function SessionSidebar({
                   <>
                     <button
                       type="button"
-                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -160,7 +160,7 @@ export function SessionSidebar({
                     </button>
                     <button
                       type="button"
-                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
