@@ -7,9 +7,11 @@ import { ModelSelector } from './model-selector'
 import { SessionSidebar } from './session-sidebar'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { TokenTracker } from './token-tracker'
+import { VariationSelector } from './variation-selector'
+import { VariationGroup } from './variation-group'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
-import type { Message, GeneratedImage, TokenUsage } from '@/lib/storage'
+import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
 import type { Attachment } from './chat-input'
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] as const
@@ -33,15 +35,37 @@ export function ChatContainer() {
   const [model, setModel] = useState<ModelId>(DEFAULT_MODEL)
   const [aspectRatio, setAspectRatio] = useState<typeof ASPECT_RATIOS[number]>('1:1')
   const [resolution, setResolution] = useState<typeof RESOLUTIONS[number]>('1K')
+  const [variationCount, setVariationCount] = useState<VariationCount>(1)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
   const [streamingImages, setStreamingImages] = useState<GeneratedImage[]>([])
   const [streamingUsage, setStreamingUsage] = useState<TokenUsage | null>(null)
+  const [streamingVariations, setStreamingVariations] = useState<Array<{
+    content: string
+    thinking: string
+    images: GeneratedImage[]
+    retryIn: number | null
+    error: string | null
+  }>>([])
+  const [activeStreamingVariation, setActiveStreamingVariation] = useState(0)
+  const [retryingVariation, setRetryingVariation] = useState<{
+    messageIndex: number
+    variationIndex: number
+    hasToken: boolean
+  } | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const abortControllersRef = useRef<AbortController[]>([])
   const streamingContentRef = useRef('')
   const streamingThinkingRef = useRef('')
   const streamingImagesRef = useRef<GeneratedImage[]>([])
+  const streamingVariationsRef = useRef<Array<{
+    content: string
+    thinking: string
+    images: GeneratedImage[]
+    retryIn: number | null
+    error: string | null
+  }>>([])
   const pendingMessagesRef = useRef<Message[]>([])
   const pendingSessionIdRef = useRef<string | null>(null)
   const pendingModelRef = useRef<ModelId>(DEFAULT_MODEL)
@@ -79,7 +103,7 @@ export function ChatContainer() {
     if (isStreaming && !userScrolledRef.current) {
       scrollToBottom('smooth')
     }
-  }, [streamingContent, streamingThinking, isStreaming, scrollToBottom])
+  }, [streamingContent, streamingThinking, streamingVariations, isStreaming, scrollToBottom])
 
   // Scroll to bottom on new messages (non-streaming)
   useEffect(() => {
@@ -186,8 +210,106 @@ export function ChatContainer() {
     return baseUsage
   }, [messages, streamingUsage])
 
+  const streamSingleResponse = async (
+    messagesToSend: Message[],
+    abortSignal: AbortSignal,
+    onUpdate: (data: { content?: string; thinking?: string; image?: GeneratedImage; usage?: TokenUsage }) => void
+  ): Promise<{ content: string; thinking: string; images: GeneratedImage[]; usage: TokenUsage | null }> => {
+    const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: messagesToSend.map((m) => ({
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments,
+          generatedImages: m.generatedImages,
+        })),
+        ...(isImageModel && {
+          imageConfig: { aspectRatio, resolution },
+        }),
+      }),
+      signal: abortSignal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('No reader available')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    let thinking = ''
+    let images: GeneratedImage[] = []
+    let usage: TokenUsage | null = null
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6)
+          if (data === '[DONE]') continue
+
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta
+
+            if (parsed.usage) {
+              usage = parsed.usage
+              onUpdate({ usage: parsed.usage })
+            }
+            if (delta?.thinking) {
+              thinking += delta.thinking
+              onUpdate({ thinking: delta.thinking })
+            }
+            if (delta?.content) {
+              content += delta.content
+              onUpdate({ content: delta.content })
+            }
+            if (delta?.image) {
+              images = [...images, delta.image]
+              onUpdate({ image: delta.image })
+            }
+          } catch {
+            // Partial JSON chunk
+          }
+        }
+      }
+    }
+
+    if (buffer.startsWith('data: ')) {
+      const data = buffer.slice(6)
+      if (data && data !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(data)
+          const delta = parsed.choices?.[0]?.delta
+          if (parsed.usage) {
+            usage = parsed.usage
+          }
+          if (delta?.image) {
+            images = [...images, delta.image]
+          }
+        } catch {
+          // Ignore trailing partial
+        }
+      }
+    }
+
+    return { content, thinking, images, usage }
+  }
+
   const handleSend = async (content: string, attachments?: Attachment[]) => {
-    // Reset scroll state on new message
     userScrolledRef.current = false
     
     let sessionId = currentSessionId
@@ -209,154 +331,88 @@ export function ChatContainer() {
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     
-    // Smooth scroll to show the new message
     setTimeout(() => scrollToBottom('smooth'), 10)
     
     setIsStreaming(true)
-    setStreamingContent('')
-    setStreamingThinking('')
-    setStreamingImages([])
-    setStreamingUsage(null)
-    streamingContentRef.current = ''
-    streamingThinkingRef.current = ''
-    streamingImagesRef.current = []
     pendingMessagesRef.current = newMessages
     pendingSessionIdRef.current = sessionId
     pendingModelRef.current = model
 
-    abortControllerRef.current = new AbortController()
+    if (variationCount === 1) {
+      setStreamingContent('')
+      setStreamingThinking('')
+      setStreamingImages([])
+      setStreamingUsage(null)
+      streamingContentRef.current = ''
+      streamingThinkingRef.current = ''
+      streamingImagesRef.current = []
 
-    try {
-      const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: newMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            attachments: m.attachments,
-            generatedImages: m.generatedImages,
-          })),
-          ...(isImageModel && {
-            imageConfig: {
-              aspectRatio,
-              resolution,
-            },
-          }),
-        }),
-        signal: abortControllerRef.current.signal,
-      })
+      abortControllerRef.current = new AbortController()
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No reader available')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') continue
-
-            try {
-              const parsed = JSON.parse(data)
-              const delta = parsed.choices?.[0]?.delta
-              
-              if (parsed.usage) {
-                streamingUsageRef.current = parsed.usage
-                setStreamingUsage(parsed.usage)
-              }
-              if (delta?.thinking) {
-                streamingThinkingRef.current += delta.thinking
-                setStreamingThinking(streamingThinkingRef.current)
-              }
-              if (delta?.content) {
-                streamingContentRef.current += delta.content
-                setStreamingContent(streamingContentRef.current)
-              }
-              if (delta?.image) {
-                streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
-                setStreamingImages(streamingImagesRef.current)
-              }
-            } catch {
-              // Partial JSON chunk
+      try {
+        const result = await streamSingleResponse(
+          newMessages,
+          abortControllerRef.current.signal,
+          (data) => {
+            if (data.content) {
+              streamingContentRef.current += data.content
+              setStreamingContent(streamingContentRef.current)
             }
-          }
-        }
-      }
-
-      if (buffer.startsWith('data: ')) {
-        const data = buffer.slice(6)
-        if (data && data !== '[DONE]') {
-          try {
-            const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta
-            if (parsed.usage) {
-              streamingUsageRef.current = parsed.usage
-              setStreamingUsage(parsed.usage)
+            if (data.thinking) {
+              streamingThinkingRef.current += data.thinking
+              setStreamingThinking(streamingThinkingRef.current)
             }
-            if (delta?.image) {
-              console.log('Received image with thoughtSignature:', !!delta.image.thoughtSignature)
-              streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
+            if (data.image) {
+              streamingImagesRef.current = [...streamingImagesRef.current, data.image]
               setStreamingImages(streamingImagesRef.current)
             }
-          } catch {
-            // Ignore trailing partial
+            if (data.usage) {
+              streamingUsageRef.current = data.usage
+              setStreamingUsage(data.usage)
+            }
           }
+        )
+
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: result.content,
+          thinking: result.thinking || undefined,
+          generatedImages: result.images.length > 0 ? result.images : undefined,
+          createdAt: new Date().toISOString(),
+          model: model,
+          usage: result.usage || undefined,
         }
-      }
 
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: streamingContentRef.current,
-        thinking: streamingThinkingRef.current || undefined,
-        generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
-        createdAt: new Date().toISOString(),
-        model: model,
-        usage: streamingUsageRef.current || undefined,
-      }
-
-      const finalMessages = [...newMessages, assistantMessage]
-      await saveMessages(sessionId, finalMessages)
-      
-      setIsStreaming(false)
-      setTimeout(() => {
-        setStreamingContent('')
-        setStreamingThinking('')
-        setStreamingImages([])
-        setStreamingUsage(null)
-        streamingUsageRef.current = null
-      }, 0)
-    } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        if (streamingContentRef.current || streamingThinkingRef.current || streamingImagesRef.current.length > 0) {
-          const assistantMessage: Message = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: streamingContentRef.current,
-            thinking: streamingThinkingRef.current || undefined,
-            generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
-            createdAt: new Date().toISOString(),
-            model: pendingModelRef.current,
-            usage: streamingUsageRef.current || undefined,
+        const finalMessages = [...newMessages, assistantMessage]
+        await saveMessages(sessionId, finalMessages)
+        
+        setIsStreaming(false)
+        setTimeout(() => {
+          setStreamingContent('')
+          setStreamingThinking('')
+          setStreamingImages([])
+          setStreamingUsage(null)
+          streamingUsageRef.current = null
+        }, 0)
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          if (streamingContentRef.current || streamingThinkingRef.current || streamingImagesRef.current.length > 0) {
+            const assistantMessage: Message = {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: streamingContentRef.current,
+              thinking: streamingThinkingRef.current || undefined,
+              generatedImages: streamingImagesRef.current.length > 0 ? streamingImagesRef.current : undefined,
+              createdAt: new Date().toISOString(),
+              model: pendingModelRef.current,
+              usage: streamingUsageRef.current || undefined,
+            }
+            const finalMessages = [...pendingMessagesRef.current, assistantMessage]
+            await saveMessages(pendingSessionIdRef.current!, finalMessages)
           }
-          const finalMessages = [...pendingMessagesRef.current, assistantMessage]
-          await saveMessages(pendingSessionIdRef.current!, finalMessages)
+        } else {
+          console.error('Chat error:', error)
         }
         setIsStreaming(false)
         setTimeout(() => {
@@ -366,22 +422,156 @@ export function ChatContainer() {
           setStreamingUsage(null)
           streamingUsageRef.current = null
         }, 0)
-      } else {
-        console.error('Chat error:', error)
-        setIsStreaming(false)
-        setStreamingContent('')
-        setStreamingThinking('')
-        setStreamingImages([])
-        setStreamingUsage(null)
-        streamingUsageRef.current = null
+      } finally {
+        abortControllerRef.current = null
       }
-    } finally {
-      abortControllerRef.current = null
+    } else {
+      const initialVariations = Array.from({ length: variationCount }, () => ({
+        content: '',
+        thinking: '',
+        images: [] as GeneratedImage[],
+        retryIn: null as number | null,
+        error: null as string | null,
+      }))
+      setStreamingVariations(initialVariations)
+      streamingVariationsRef.current = initialVariations
+      setActiveStreamingVariation(0)
+
+      abortControllersRef.current = Array.from({ length: variationCount }, () => new AbortController())
+
+      const streamWithRetry = async (
+        index: number,
+        attempt: number = 0
+      ): Promise<{ content: string; thinking: string; images: GeneratedImage[]; usage: TokenUsage | null }> => {
+        const maxRetries = 5
+        const baseDelay = 2000
+
+        try {
+          abortControllersRef.current[index] = new AbortController()
+          
+          const result = await streamSingleResponse(
+            newMessages,
+            abortControllersRef.current[index].signal,
+            (data) => {
+              const current = streamingVariationsRef.current[index]
+              const updated = {
+                content: data.content ? current.content + data.content : current.content,
+                thinking: data.thinking ? current.thinking + data.thinking : current.thinking,
+                images: data.image ? [...current.images, data.image] : current.images,
+                retryIn: null,
+                error: null,
+              }
+              streamingVariationsRef.current = [
+                ...streamingVariationsRef.current.slice(0, index),
+                updated,
+                ...streamingVariationsRef.current.slice(index + 1),
+              ]
+              setStreamingVariations([...streamingVariationsRef.current])
+            }
+          )
+          return result
+        } catch (error) {
+          if ((error as Error).name === 'AbortError') {
+            throw error
+          }
+          
+          const isRateLimit = (error as Error).message?.includes('429') || 
+                              (error as Error).message?.includes('rate') ||
+                              (error as Error).message?.includes('Too Many')
+          
+          if (isRateLimit && attempt < maxRetries) {
+            const delaySeconds = Math.pow(2, attempt) * (baseDelay / 1000)
+            
+            for (let remaining = delaySeconds; remaining > 0; remaining--) {
+              const current = streamingVariationsRef.current[index]
+              const updated = { ...current, retryIn: remaining, error: null }
+              streamingVariationsRef.current = [
+                ...streamingVariationsRef.current.slice(0, index),
+                updated,
+                ...streamingVariationsRef.current.slice(index + 1),
+              ]
+              setStreamingVariations([...streamingVariationsRef.current])
+              
+              await new Promise(resolve => setTimeout(resolve, 1000))
+            }
+            
+            const current = streamingVariationsRef.current[index]
+            const reset = { ...current, retryIn: null, content: '', thinking: '', images: [] }
+            streamingVariationsRef.current = [
+              ...streamingVariationsRef.current.slice(0, index),
+              reset,
+              ...streamingVariationsRef.current.slice(index + 1),
+            ]
+            setStreamingVariations([...streamingVariationsRef.current])
+            
+            return streamWithRetry(index, attempt + 1)
+          }
+          
+          const current = streamingVariationsRef.current[index]
+          const errorMsg = isRateLimit ? 'Max retries exceeded' : 'Request failed'
+          const updated = { ...current, retryIn: null, error: errorMsg }
+          streamingVariationsRef.current = [
+            ...streamingVariationsRef.current.slice(0, index),
+            updated,
+            ...streamingVariationsRef.current.slice(index + 1),
+          ]
+          setStreamingVariations([...streamingVariationsRef.current])
+          
+          return { content: current.content, thinking: current.thinking, images: current.images, usage: null }
+        }
+      }
+
+      const streamPromises = Array.from({ length: variationCount }, (_, index) =>
+        streamWithRetry(index)
+      )
+
+      try {
+        const results = await Promise.all(streamPromises)
+        
+        const variations: Message[] = results.map((result) => ({
+          id: crypto.randomUUID(),
+          role: 'assistant' as const,
+          content: result.content,
+          thinking: result.thinking || undefined,
+          generatedImages: result.images.length > 0 ? result.images : undefined,
+          createdAt: new Date().toISOString(),
+          model: model,
+          usage: result.usage || undefined,
+        }))
+
+        const activeIndex = Math.min(
+          Math.max(activeStreamingVariation, 0),
+          Math.max(variations.length - 1, 0)
+        )
+        const activeVariation = variations[activeIndex] || variations[0]
+        const messageWithVariations: Message = {
+          ...activeVariation,
+          variations: variations,
+          activeVariationIndex: activeIndex,
+        }
+
+        const finalMessages = [...newMessages, messageWithVariations]
+        await saveMessages(sessionId, finalMessages)
+        
+        setIsStreaming(false)
+        setTimeout(() => {
+          setStreamingVariations([])
+          streamingVariationsRef.current = []
+        }, 0)
+      } catch (error) {
+        console.error('Parallel streaming error:', error)
+        setIsStreaming(false)
+        setStreamingVariations([])
+        streamingVariationsRef.current = []
+      } finally {
+        abortControllersRef.current = []
+      }
     }
   }
 
   const handleStop = () => {
     abortControllerRef.current?.abort()
+    abortControllersRef.current.forEach(controller => controller.abort())
   }
 
   const handleSelectSession = async (id: string) => {
@@ -559,6 +749,104 @@ export function ChatContainer() {
     }
   }
 
+  const handleRetryVariation = async (messageIndex: number, variationIndex: number) => {
+    const message = messages[messageIndex]
+    if (!message || message.role !== 'assistant' || !message.variations || !currentSessionId) return
+
+    const activeIndex = message.activeVariationIndex ?? 0
+    if (variationIndex !== activeIndex) return
+
+    const previousMessages = messages.slice(0, messageIndex)
+    let nextContent = ''
+    let nextThinking = ''
+    let nextImages: GeneratedImage[] = []
+    let nextUsage: TokenUsage | undefined
+    let latestMessages = messages
+
+    const applyUpdate = () => {
+      const updatedMessages = [...latestMessages]
+      const currentMessage = updatedMessages[messageIndex]
+      if (!currentMessage || !currentMessage.variations) return
+
+      const variations = [...currentMessage.variations]
+      const currentVariation = variations[variationIndex]
+      if (!currentVariation) return
+
+      const updatedVariation: Message = {
+        ...currentVariation,
+        content: nextContent,
+        thinking: nextThinking || undefined,
+        generatedImages: nextImages.length > 0 ? nextImages : undefined,
+        ...(nextUsage ? { usage: nextUsage } : {}),
+      }
+
+      variations[variationIndex] = updatedVariation
+
+      const updatedMessage: Message = {
+        ...currentMessage,
+        variations,
+        content: nextContent,
+        thinking: nextThinking || undefined,
+        generatedImages: nextImages.length > 0 ? nextImages : undefined,
+        ...(nextUsage ? { usage: nextUsage } : {}),
+      }
+
+      updatedMessages[messageIndex] = updatedMessage
+      latestMessages = updatedMessages
+      setMessages(updatedMessages)
+    }
+
+    let hasToken = false
+
+    setRetryingVariation({ messageIndex, variationIndex, hasToken: false })
+    setIsStreaming(true)
+    userScrolledRef.current = false
+    applyUpdate()
+
+    abortControllerRef.current = new AbortController()
+
+    try {
+      await streamSingleResponse(
+        previousMessages,
+        abortControllerRef.current.signal,
+        (data) => {
+          const receivedToken = Boolean(data.content || data.thinking || data.image)
+          if (receivedToken && !hasToken) {
+            hasToken = true
+            setRetryingVariation((prev) =>
+              prev && prev.messageIndex === messageIndex && prev.variationIndex === variationIndex
+                ? { ...prev, hasToken: true }
+                : prev
+            )
+          }
+          if (data.content) {
+            nextContent += data.content
+          }
+          if (data.thinking) {
+            nextThinking += data.thinking
+          }
+          if (data.image) {
+            nextImages = [...nextImages, data.image]
+          }
+          if (data.usage) {
+            nextUsage = data.usage
+          }
+          applyUpdate()
+        }
+      )
+
+      await saveMessages(currentSessionId, latestMessages)
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Variation retry error:', error)
+      }
+    } finally {
+      setRetryingVariation(null)
+      setIsStreaming(false)
+      abortControllerRef.current = null
+    }
+  }
+
   const handleNavigateSibling = async (messageIndex: number, direction: 'prev' | 'next') => {
     const message = messages[messageIndex]
     if (!message || !message.siblings || message.siblings.length === 0 || !currentSessionId) return
@@ -610,7 +898,39 @@ export function ChatContainer() {
       ...messages.slice(messageIndex),
     ]
     setMessages(updatedMessages)
-    // Don't save yet - user needs to edit the empty message
+  }
+
+  const handleSelectVariation = async (messageIndex: number, variationIndex: number) => {
+    const message = messages[messageIndex]
+    if (!message || !message.variations || !currentSessionId) return
+
+    const selected = message.variations[variationIndex]
+    if (!selected) return
+    
+    const updatedMessage: Message = {
+      ...message,
+      activeVariationIndex: variationIndex,
+      content: selected.content,
+      thinking: selected.thinking,
+      generatedImages: selected.generatedImages,
+      usage: selected.usage,
+    }
+    
+    const updatedMessages = [...messages]
+    updatedMessages[messageIndex] = updatedMessage
+    
+    suppressAutoScrollRef.current = true
+    await saveMessages(currentSessionId, updatedMessages)
+  }
+
+  const getFlowColorIndex = (messageIndex: number): number | undefined => {
+    for (let i = messageIndex; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role === 'assistant' && msg.variations && msg.variations.length > 1) {
+        return msg.activeVariationIndex ?? 0
+      }
+    }
+    return undefined
   }
 
   const handleNewSession = () => {
@@ -669,8 +989,8 @@ export function ChatContainer() {
           ref={scrollRef}
           onScrollCapture={handleScroll}
         >
-          <div className="mx-auto max-w-3xl pb-4 flex flex-col gap-2">
-            {messages.length === 0 && !streamingContent && streamingImages.length === 0 ? (
+          <div className="px-4 pb-4 flex flex-col gap-2">
+            {messages.length === 0 && !streamingContent && streamingImages.length === 0 && streamingVariations.length === 0 ? (
               <div className="flex h-[calc(100vh-200px)] items-center justify-center text-muted-foreground">
                 <p>Start a new conversation</p>
               </div>
@@ -679,6 +999,54 @@ export function ChatContainer() {
                 {messages.map((message, index) => {
                   const siblingCount = message.siblings ? message.siblings.length + 1 : 1
                   const siblingIndex = message.activeSiblingIndex ?? (siblingCount - 1)
+                  const hasVariations = message.variations && message.variations.length > 1
+                  const flowColorIndex = getFlowColorIndex(index)
+                  
+                  if (hasVariations && message.role === 'assistant') {
+                    return (
+                      <VariationGroup
+                        key={message.id}
+                        variations={message.variations!}
+                        activeIndex={message.activeVariationIndex ?? 0}
+                        onSelectVariation={(varIndex) => handleSelectVariation(index, varIndex)}
+                        modelName={message.model}
+                        onEdit={(varIndex, content) => {
+                          const variation = message.variations![varIndex]
+                          if (variation && currentSessionId) {
+                            const activeIndex = message.activeVariationIndex ?? 0
+                            const updatedVariations = [...message.variations!]
+                            const updatedVariation = { ...variation, content }
+                            updatedVariations[varIndex] = updatedVariation
+                            const updatedMessage: Message = activeIndex === varIndex
+                              ? {
+                                  ...message,
+                                  variations: updatedVariations,
+                                  content,
+                                  thinking: updatedVariation.thinking,
+                                  generatedImages: updatedVariation.generatedImages,
+                                  usage: updatedVariation.usage,
+                                }
+                              : { ...message, variations: updatedVariations }
+                            const updatedMessages = [...messages]
+                            updatedMessages[index] = updatedMessage
+                            saveMessages(currentSessionId, updatedMessages)
+                          }
+                        }}
+                        onRetry={(varIndex) => handleRetryVariation(index, varIndex)}
+                        onDelete={() => handleDeleteMessage(index)}
+                        retryingVariationIndex={
+                          retryingVariation && retryingVariation.messageIndex === index
+                            ? retryingVariation.variationIndex
+                            : undefined
+                        }
+                        retryingVariationHasToken={
+                          retryingVariation && retryingVariation.messageIndex === index
+                            ? retryingVariation.hasToken
+                            : undefined
+                        }
+                      />
+                    )
+                  }
                   
                   return (
                     <ChatMessage
@@ -691,6 +1059,7 @@ export function ChatContainer() {
                       modelName={message.model}
                       siblingCount={siblingCount}
                       siblingIndex={siblingIndex}
+                      variationIndex={flowColorIndex}
                       onEdit={(newContent) => handleEditMessage(index, newContent)}
                       onRetry={message.role === 'assistant' ? () => handleRetryMessage(index) : undefined}
                       onNavigateSibling={siblingCount > 1 ? (dir) => handleNavigateSibling(index, dir) : undefined}
@@ -699,7 +1068,17 @@ export function ChatContainer() {
                     />
                   )
                 })}
-                {(streamingContent || streamingThinking || streamingImages.length > 0) && (
+                {streamingVariations.length > 0 && (
+                  <VariationGroup
+                    variations={[]}
+                    activeIndex={activeStreamingVariation}
+                    onSelectVariation={setActiveStreamingVariation}
+                    isStreaming
+                    streamingVariations={streamingVariations}
+                    modelName={model}
+                  />
+                )}
+                {streamingVariations.length === 0 && (streamingContent || streamingThinking || streamingImages.length > 0) && (
                   <ChatMessage
                     role="assistant"
                     content={streamingContent}
@@ -714,12 +1093,21 @@ export function ChatContainer() {
             )}
           </div>
         </ScrollArea>
-        <ChatInput
-          ref={chatInputRef}
-          onSend={handleSend}
-          onStop={handleStop}
-          isLoading={isStreaming}
-        />
+        <div className="border-t px-4 py-2 flex items-center gap-3">
+          <VariationSelector
+            value={variationCount}
+            onChange={setVariationCount}
+            disabled={isStreaming}
+          />
+          <div className="flex-1">
+            <ChatInput
+              ref={chatInputRef}
+              onSend={handleSend}
+              onStop={handleStop}
+              isLoading={isStreaming}
+            />
+          </div>
+        </div>
       </div>
     </div>
   )

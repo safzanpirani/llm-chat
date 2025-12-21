@@ -1,9 +1,12 @@
+export type VariationCount = 1 | 2 | 3 | 4
+
 export interface SessionMeta {
   id: string
   title: string
   createdAt: string
   updatedAt: string
   model: string
+  variationCount?: VariationCount
 }
 
 export interface GeneratedImage {
@@ -41,6 +44,9 @@ export interface Message {
   siblings?: Message[]
   activeSiblingIndex?: number
   usage?: TokenUsage
+  // Variation support: multiple parallel responses
+  variations?: Message[]
+  activeVariationIndex?: number
 }
 
 export interface Session extends SessionMeta {

@@ -5,6 +5,13 @@ import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, Ch
 import { Lightbox } from '@/components/ui/lightbox'
 import type { GeneratedImage } from '@/lib/storage'
 
+const VARIATION_ACCENT_COLORS: Record<number, string> = {
+  0: 'border-l-[hsl(var(--variation-1))]',
+  1: 'border-l-[hsl(var(--variation-2))]',
+  2: 'border-l-[hsl(var(--variation-3))]',
+  3: 'border-l-[hsl(var(--variation-4))]',
+}
+
 interface Attachment {
   type: 'image' | 'document'
   name: string
@@ -22,6 +29,7 @@ interface ChatMessageProps {
   modelName?: string
   siblingCount?: number
   siblingIndex?: number
+  variationIndex?: number
   onEdit?: (newContent: string) => void
   onRetry?: () => void
   onNavigateSibling?: (direction: 'prev' | 'next') => void
@@ -39,6 +47,7 @@ export function ChatMessage({
   modelName, 
   siblingCount = 1,
   siblingIndex = 0,
+  variationIndex,
   onEdit,
   onRetry,
   onNavigateSibling,
@@ -55,11 +64,15 @@ export function ChatMessage({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isClaudeModel = modelName?.toLowerCase().includes('claude')
-  const accentColor = isUser 
-    ? 'border-l-yellow-500' 
-    : isClaudeModel 
-      ? 'border-l-orange-500' 
-      : 'border-l-blue-500'
+  
+  const isInVariationGroup = variationIndex !== undefined && variationIndex >= 0
+  const accentColor = isInVariationGroup
+    ? VARIATION_ACCENT_COLORS[variationIndex] || VARIATION_ACCENT_COLORS[0]
+    : isUser 
+      ? 'border-l-yellow-500' 
+      : isClaudeModel 
+        ? 'border-l-orange-500' 
+        : 'border-l-blue-500'
 
   const hasSiblings = siblingCount > 1
 
@@ -164,7 +177,7 @@ export function ChatMessage({
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
-              {!isUser && (
+              {!isUser && onRetry && (
                 <button
                   onClick={onRetry}
                   className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
