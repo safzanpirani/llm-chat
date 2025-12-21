@@ -92,7 +92,7 @@ export function useSessions() {
 
   const saveMessages = useCallback(async (sessionId: string, newMessages: Message[]) => {
     try {
-      const title = newMessages[0]?.content.slice(0, 50) || 'New Chat'
+      const title = newMessages[0]?.content.slice(0, 20) || 'New Chat'
       await storage.updateSession(sessionId, { messages: newMessages, title })
       setMessages(newMessages)
       setSessions((prev) =>

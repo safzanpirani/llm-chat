@@ -85,96 +85,94 @@ export function SessionSidebar({
           </a>
         </Button>
       </div>
-      <ScrollArea className="flex-1 px-2">
-        <div className="space-y-1 pb-4">
+      <ScrollArea className="flex-1 px-2 [&>[data-radix-scroll-area-viewport]]:!block">
+        <div className="space-y-1 pb-4 w-full">
           {sessions.map((session) => (
-            <a
+            <div
               key={session.id}
-              href={getSessionUrl(session.id)}
               className={cn(
-                'group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
-                'hover:bg-accent cursor-pointer no-underline text-foreground',
+                'group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                'hover:bg-accent cursor-pointer',
                 currentSessionId === session.id && 'bg-accent'
               )}
-              onClick={(e) => handleSessionClick(e, session.id)}
             >
-              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {editingId === session.id ? (
-                <input
-                  type="text"
-                  value={editingTitle}
-                  onChange={(e) => setEditingTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') confirmRename()
-                    if (e.key === 'Escape') cancelEditing()
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex-1 bg-background px-1 py-0.5 text-sm rounded border outline-none focus:ring-1 focus:ring-ring"
-                  autoFocus
-                />
-              ) : (
-                <span className="flex-1 truncate">{session.title}</span>
-              )}
-              {editingId === session.id ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      confirmRename()
+              <a
+                href={getSessionUrl(session.id)}
+                className="flex min-w-0 flex-1 items-center gap-2 no-underline text-foreground"
+                onClick={(e) => handleSessionClick(e, session.id)}
+              >
+                <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {editingId === session.id ? (
+                  <input
+                    type="text"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') confirmRename()
+                      if (e.key === 'Escape') cancelEditing()
                     }}
-                  >
-                    <Check className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      cancelEditing()
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      startEditing(session)
-                    }}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      onDeleteSession(session.id)
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </>
-              )}
-            </a>
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-w-0 flex-1 bg-background px-1 py-0.5 text-sm rounded border outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                )}
+              </a>
+              <div className="flex shrink-0 items-center gap-1">
+                {editingId === session.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        confirmRename()
+                      }}
+                    >
+                      <Check className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        cancelEditing()
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        startEditing(session)
+                      }}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        onDeleteSession(session.id)
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           ))}
         </div>
       </ScrollArea>
