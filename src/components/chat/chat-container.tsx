@@ -666,11 +666,138 @@ export function ChatContainer() {
       const updatedMessage = { ...message, content: newContent }
       const updatedMessages = [...messages]
       updatedMessages[messageIndex] = updatedMessage
-      await saveMessages(currentSessionId, updatedMessages)
       
       const nextIndex = messageIndex + 1
       if (nextIndex < messages.length && messages[nextIndex].role === 'assistant') {
-        setTimeout(() => handleRetryMessage(nextIndex), 50)
+        const aiMessage = messages[nextIndex]
+        const previousMessages = updatedMessages.slice(0, nextIndex)
+        
+        const orderedVersions = buildOrderedVersions(aiMessage)
+        
+        setMessages(previousMessages)
+        await saveMessages(currentSessionId, previousMessages)
+        
+        setIsStreaming(true)
+        setStreamingContent('')
+        setStreamingThinking('')
+        setStreamingImages([])
+        setStreamingUsage(null)
+        streamingContentRef.current = ''
+        streamingThinkingRef.current = ''
+        streamingImagesRef.current = []
+        streamingUsageRef.current = null
+        pendingMessagesRef.current = previousMessages
+        pendingSessionIdRef.current = currentSessionId
+        pendingModelRef.current = model
+        userScrolledRef.current = false
+        
+        abortControllerRef.current = new AbortController()
+        
+        try {
+          const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              messages: previousMessages.map((m) => ({
+                role: m.role,
+                content: m.content,
+                attachments: m.attachments,
+                generatedImages: m.generatedImages,
+              })),
+              ...(isImageModel && {
+                imageConfig: { aspectRatio, resolution },
+              }),
+            }),
+            signal: abortControllerRef.current.signal,
+          })
+
+          if (!response.ok) throw new Error('Failed to send message')
+
+          if (isImageModel) {
+            const data = await response.json()
+            const generatedImages: GeneratedImage[] = data.images || []
+            const newMessage: Message = {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: data.text || '',
+              model,
+              generatedImages,
+              createdAt: new Date().toISOString(),
+              siblings: orderedVersions.length > 0 ? orderedVersions : undefined,
+              activeSiblingIndex: orderedVersions.length > 0 ? orderedVersions.length : undefined,
+            }
+            const finalMessages = [...previousMessages, newMessage]
+            setMessages(finalMessages)
+            await saveMessages(currentSessionId, finalMessages)
+          } else {
+            const reader = response.body?.getReader()
+            if (!reader) throw new Error('No reader available')
+
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue
+                const data = line.slice(6)
+                if (data === '[DONE]') continue
+
+                try {
+                  const parsed = JSON.parse(data)
+                  const delta = parsed.choices?.[0]?.delta
+                  
+                  if (delta?.thinking) {
+                    streamingThinkingRef.current += delta.thinking
+                    setStreamingThinking(streamingThinkingRef.current)
+                  }
+                  if (delta?.content) {
+                    streamingContentRef.current += delta.content
+                    setStreamingContent(streamingContentRef.current)
+                  }
+                  if (delta?.image) {
+                    streamingImagesRef.current = [...streamingImagesRef.current, delta.image]
+                    setStreamingImages(streamingImagesRef.current)
+                  }
+                } catch {}
+              }
+            }
+
+            const newMessage: Message = {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: streamingContentRef.current,
+              thinking: streamingThinkingRef.current || undefined,
+              model,
+              createdAt: new Date().toISOString(),
+              siblings: orderedVersions.length > 0 ? orderedVersions : undefined,
+              activeSiblingIndex: orderedVersions.length > 0 ? orderedVersions.length : undefined,
+              usage: streamingUsageRef.current || undefined,
+            }
+            const finalMessages = [...previousMessages, newMessage]
+            setMessages(finalMessages)
+            await saveMessages(currentSessionId, finalMessages)
+          }
+        } catch (error: unknown) {
+          if (error instanceof Error && error.name !== 'AbortError') {
+            console.error('Failed to regenerate:', error)
+          }
+        } finally {
+          setIsStreaming(false)
+          setStreamingContent('')
+          setStreamingThinking('')
+          setStreamingImages([])
+        }
+      } else {
+        await saveMessages(currentSessionId, updatedMessages)
       }
     } else if (message.role === 'assistant') {
       const updatedMessage = { ...message, content: newContent }
@@ -755,10 +882,6 @@ export function ChatContainer() {
               const parsed = JSON.parse(data)
               const delta = parsed.choices?.[0]?.delta
               
-              if (parsed.usage) {
-                streamingUsageRef.current = parsed.usage
-                setStreamingUsage(parsed.usage)
-              }
               if (delta?.thinking) {
                 streamingThinkingRef.current += delta.thinking
                 setStreamingThinking(streamingThinkingRef.current)
@@ -798,8 +921,6 @@ export function ChatContainer() {
         setStreamingContent('')
         setStreamingThinking('')
         setStreamingImages([])
-        setStreamingUsage(null)
-        streamingUsageRef.current = null
       }, 0)
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
