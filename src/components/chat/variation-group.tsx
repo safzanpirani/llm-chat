@@ -35,6 +35,7 @@ interface VariationGroupProps {
   modelName?: string
   onEdit?: (variationIndex: number, newContent: string) => void
   onRetry?: (variationIndex: number) => void
+  onSaveAndRegenerate?: (variationIndex: number, newContent: string) => void
   onDelete?: () => void
   retryingVariationIndex?: number
   retryingVariationHasToken?: boolean
@@ -49,6 +50,7 @@ export function VariationGroup({
   modelName,
   onEdit,
   onRetry,
+  onSaveAndRegenerate,
   onDelete,
   retryingVariationIndex,
   retryingVariationHasToken,
@@ -197,6 +199,7 @@ export function VariationGroup({
                   isStreaming={isRetrying}
                   onEdit={onEdit ? (content) => onEdit(index, content) : undefined}
                   onRetry={onRetry && activeIndex === index && !isRetrying ? () => onRetry(index) : undefined}
+                  onSaveAndRegenerate={onSaveAndRegenerate ? (content) => onSaveAndRegenerate(index, content) : undefined}
                 />
               </div>
             )

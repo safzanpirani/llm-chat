@@ -658,6 +658,29 @@ export function ChatContainer() {
     await saveMessages(currentSessionId, updatedMessages)
   }
 
+  const handleEditAndRegenerate = async (messageIndex: number, newContent: string) => {
+    const message = messages[messageIndex]
+    if (!message || !currentSessionId) return
+    
+    if (message.role === 'user') {
+      const updatedMessage = { ...message, content: newContent }
+      const updatedMessages = [...messages]
+      updatedMessages[messageIndex] = updatedMessage
+      await saveMessages(currentSessionId, updatedMessages)
+      
+      const nextIndex = messageIndex + 1
+      if (nextIndex < messages.length && messages[nextIndex].role === 'assistant') {
+        setTimeout(() => handleRetryMessage(nextIndex), 50)
+      }
+    } else if (message.role === 'assistant') {
+      const updatedMessage = { ...message, content: newContent }
+      const updatedMessages = [...messages]
+      updatedMessages[messageIndex] = updatedMessage
+      await saveMessages(currentSessionId, updatedMessages)
+      handleRetryMessage(messageIndex)
+    }
+  }
+
   const handleRetryMessage = async (messageIndex: number) => {
     const message = messages[messageIndex]
     if (!message || message.role !== 'assistant' || !currentSessionId) return
@@ -1077,6 +1100,30 @@ export function ChatContainer() {
                           }
                         }}
                         onRetry={(varIndex) => handleRetryVariation(index, varIndex)}
+                        onSaveAndRegenerate={(varIndex, content) => {
+                          const variation = message.variations![varIndex]
+                          if (variation && currentSessionId) {
+                            const activeIdx = message.activeVariationIndex ?? 0
+                            const updatedVariations = [...message.variations!]
+                            const updatedVariation = { ...variation, content }
+                            updatedVariations[varIndex] = updatedVariation
+                            const updatedMessage: Message = activeIdx === varIndex
+                              ? {
+                                  ...message,
+                                  variations: updatedVariations,
+                                  content,
+                                  thinking: updatedVariation.thinking,
+                                  generatedImages: updatedVariation.generatedImages,
+                                  usage: updatedVariation.usage,
+                                }
+                              : { ...message, variations: updatedVariations }
+                            const updatedMessages = [...messages]
+                            updatedMessages[index] = updatedMessage
+                            saveMessages(currentSessionId, updatedMessages).then(() => {
+                              handleRetryVariation(index, varIndex)
+                            })
+                          }
+                        }}
                         onDelete={() => handleDeleteMessage(index)}
                         retryingVariationIndex={
                           retryingVariation && retryingVariation.messageIndex === index
@@ -1109,6 +1156,7 @@ export function ChatContainer() {
                       onNavigateSibling={siblingCount > 1 ? (dir) => handleNavigateSibling(index, dir) : undefined}
                       onDelete={() => handleDeleteMessage(index)}
                       onAddBefore={() => handleAddMessageBefore(index, message.role as 'user' | 'assistant')}
+                      onSaveAndRegenerate={(newContent) => handleEditAndRegenerate(index, newContent)}
                     />
                   )
                 })}

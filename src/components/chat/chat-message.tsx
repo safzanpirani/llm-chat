@@ -35,6 +35,7 @@ interface ChatMessageProps {
   onNavigateSibling?: (direction: 'prev' | 'next') => void
   onDelete?: () => void
   onAddBefore?: (role: 'user' | 'assistant') => void
+  onSaveAndRegenerate?: (newContent: string) => void
 }
 
 export function ChatMessage({ 
@@ -53,6 +54,7 @@ export function ChatMessage({
   onNavigateSibling,
   onDelete,
   onAddBefore,
+  onSaveAndRegenerate,
 }: ChatMessageProps) {
   const isUser = role === 'user'
   const [isCopied, setIsCopied] = useState(false)
@@ -115,6 +117,15 @@ export function ChatMessage({
     if (e.key === 'Escape') {
       handleCancelEdit()
     } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      if (editContent.trim() !== content) {
+        onSaveAndRegenerate?.(editContent.trim())
+      } else {
+        onRetry?.()
+      }
+      setIsEditing(false)
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
       handleSaveEdit()
     }
   }
@@ -312,7 +323,7 @@ export function ChatMessage({
                   Cancel
                 </button>
                 <span className="ml-auto text-xs text-muted-foreground self-center">
-                  Cmd+Enter to save, Esc to cancel
+                  Enter to save, {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+Enter to save & regenerate
                 </span>
               </div>
             </div>
