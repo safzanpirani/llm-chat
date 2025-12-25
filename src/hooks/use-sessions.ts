@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { SessionMeta, Message } from '@/lib/storage'
 import * as storage from '@/lib/storage'
 
@@ -17,11 +17,27 @@ function updateUrlWithSession(sessionId: string | null) {
   window.history.replaceState({}, '', url.toString())
 }
 
+async function generateTitle(message: string): Promise<string> {
+  try {
+    const res = await fetch('/api/generate-title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+    if (!res.ok) return message.slice(0, 30) || 'New Chat'
+    const data = await res.json()
+    return data.title || message.slice(0, 30) || 'New Chat'
+  } catch {
+    return message.slice(0, 30) || 'New Chat'
+  }
+}
+
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const titleRequestRef = useRef<Set<string>>(new Set())
 
   const loadSessions = useCallback(async () => {
     try {
@@ -97,8 +113,22 @@ export function useSessions() {
 
   const saveMessages = useCallback(async (sessionId: string, newMessages: Message[]) => {
     try {
-      const title = newMessages[0]?.content.slice(0, 20) || 'New Chat'
       const updatedAt = new Date().toISOString()
+      const currentSession = sessions.find((s) => s.id === sessionId)
+      const firstUserMessage = newMessages.find((m) => m.role === 'user')
+      const fallbackTitle = firstUserMessage?.content.slice(0, 30) || 'New Chat'
+      const shouldGenerateTitle =
+        Boolean(firstUserMessage) &&
+        !titleRequestRef.current.has(sessionId) &&
+        (!currentSession || currentSession.title === 'New Chat')
+
+      let title = currentSession?.title || 'New Chat'
+
+      if (shouldGenerateTitle) {
+        title = fallbackTitle
+        titleRequestRef.current.add(sessionId)
+      }
+
       await storage.updateSession(sessionId, { messages: newMessages, title })
       setMessages(newMessages)
       setSessions((prev) => {
@@ -111,8 +141,52 @@ export function useSessions() {
         const rest = updated.filter((s) => s.id !== sessionId)
         return active ? [active, ...rest] : updated
       })
+
+      if (shouldGenerateTitle && firstUserMessage) {
+        generateTitle(firstUserMessage.content).then((aiTitle) => {
+          setSessions((prev) => {
+            const target = prev.find((s) => s.id === sessionId)
+            if (!target || (target.title !== fallbackTitle && target.title !== 'New Chat')) {
+              return prev
+            }
+            storage.updateSession(sessionId, { title: aiTitle }).catch(() => {})
+            return prev.map((s) =>
+              s.id === sessionId ? { ...s, title: aiTitle } : s
+            )
+          })
+        })
+      }
     } catch (error) {
       console.error('Failed to save messages:', error)
+    }
+  }, [sessions])
+
+  const forkSession = useCallback(async (id: string) => {
+    try {
+      const originalSession = await storage.getSession(id)
+      if (!originalSession) return null
+
+      const forkTitle = `Fork of ${originalSession.title}`
+      const newSession = await storage.createSession(forkTitle, originalSession.model)
+
+      const forkedMessages = originalSession.messages.map((m) => ({
+        ...m,
+        id: crypto.randomUUID(),
+        siblings: undefined,
+        activeSiblingIndex: undefined,
+      }))
+
+      await storage.updateSession(newSession.id, { messages: forkedMessages, title: forkTitle })
+
+      setSessions((prev) => [{ ...newSession, title: forkTitle }, ...prev])
+      setCurrentSessionId(newSession.id)
+      setMessages(forkedMessages)
+      updateUrlWithSession(newSession.id)
+
+      return newSession
+    } catch (error) {
+      console.error('Failed to fork session:', error)
+      return null
     }
   }, [])
 
@@ -138,6 +212,7 @@ export function useSessions() {
     createSession,
     deleteSession,
     renameSession,
+    forkSession,
     saveMessages,
     setMessages,
   }

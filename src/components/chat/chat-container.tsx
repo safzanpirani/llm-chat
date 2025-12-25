@@ -9,6 +9,7 @@ import { ThemeToggle } from '@/components/theme-toggle'
 import { TokenTracker } from './token-tracker'
 import { VariationSelector } from './variation-selector'
 import { VariationGroup } from './variation-group'
+import { SearchModal } from './search-modal'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
@@ -36,6 +37,7 @@ export function ChatContainer() {
   const [aspectRatio, setAspectRatio] = useState<typeof ASPECT_RATIOS[number]>('1:1')
   const [resolution, setResolution] = useState<typeof RESOLUTIONS[number]>('1K')
   const [variationCount, setVariationCount] = useState<VariationCount>(1)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
@@ -119,6 +121,8 @@ export function ChatContainer() {
   // Global keyboard handler - focus input when typing anywhere
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (isSearchOpen) return
+
       // Ignore if already in an input/textarea or if modifier keys are pressed (except shift)
       const target = e.target as HTMLElement
       if (
@@ -143,7 +147,7 @@ export function ChatContainer() {
 
     document.addEventListener('keydown', handleGlobalKeyDown)
     return () => document.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [])
+  }, [isSearchOpen])
 
   // Global paste handler - capture image pastes anywhere
   useEffect(() => {
@@ -178,6 +182,18 @@ export function ChatContainer() {
 
     document.addEventListener('paste', handleGlobalPaste)
     return () => document.removeEventListener('paste', handleGlobalPaste)
+  }, [])
+
+  useEffect(() => {
+    const handleSearchKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setIsSearchOpen(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleSearchKey)
+    return () => document.removeEventListener('keydown', handleSearchKey)
   }, [])
 
   const latestUsage = useMemo((): TokenUsage => {
@@ -257,7 +273,8 @@ export function ChatContainer() {
   const streamSingleResponse = async (
     messagesToSend: Message[],
     abortSignal: AbortSignal,
-    onUpdate: (data: { content?: string; thinking?: string; image?: GeneratedImage; usage?: TokenUsage }) => void
+    onUpdate: (data: { content?: string; thinking?: string; image?: GeneratedImage; usage?: TokenUsage }) => void,
+    options?: { isPrefill?: boolean }
   ): Promise<{ content: string; thinking: string; images: GeneratedImage[]; usage: TokenUsage | null }> => {
     const isImageModel = IMAGE_GENERATION_MODELS.includes(model)
     const response = await fetch('/api/chat', {
@@ -274,6 +291,7 @@ export function ChatContainer() {
         ...(isImageModel && {
           imageConfig: { aspectRatio, resolution },
         }),
+        ...(options?.isPrefill && { disableThinking: true }),
       }),
       signal: abortSignal,
     })
@@ -353,7 +371,7 @@ export function ChatContainer() {
     return { content, thinking, images, usage }
   }
 
-  const handleSend = async (content: string, attachments?: Attachment[]) => {
+  const handleSend = async (content: string, attachments?: Attachment[], isPrefill?: boolean) => {
     userScrolledRef.current = false
     
     let sessionId = currentSessionId
@@ -364,15 +382,33 @@ export function ChatContainer() {
       sessionId = newSession.id
     }
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      attachments,
-      createdAt: new Date().toISOString(),
+    let newMessages: Message[]
+    
+    if (isPrefill) {
+      // Prefill mode: Just add the assistant message with prefill content
+      // Claude will continue from this text
+      const prefillMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content,
+        createdAt: new Date().toISOString(),
+        model: model,
+        isPrefill: true,
+        originalPrefill: content,
+      }
+      newMessages = [...messages, prefillMessage]
+    } else {
+      // Normal mode: Add as user message
+      const userMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content,
+        attachments,
+        createdAt: new Date().toISOString(),
+      }
+      newMessages = [...messages, userMessage]
     }
-
-    const newMessages = [...messages, userMessage]
+    
     setMessages(newMessages)
     
     setTimeout(() => scrollToBottom('smooth'), 10)
@@ -383,11 +419,11 @@ export function ChatContainer() {
     pendingModelRef.current = model
 
     if (variationCount === 1) {
-      setStreamingContent('')
+      setStreamingContent(isPrefill ? content : '')
       setStreamingThinking('')
       setStreamingImages([])
       setStreamingUsage(null)
-      streamingContentRef.current = ''
+      streamingContentRef.current = isPrefill ? content : ''
       streamingThinkingRef.current = ''
       streamingImagesRef.current = []
 
@@ -414,21 +450,29 @@ export function ChatContainer() {
               streamingUsageRef.current = data.usage
               setStreamingUsage(data.usage)
             }
-          }
+          },
+          isPrefill ? { isPrefill: true } : undefined
         )
 
+        // For prefill, combine the original prefill text with the continuation
+        const finalContent = isPrefill ? content + result.content : result.content
+        
         const assistantMessage: Message = {
-          id: crypto.randomUUID(),
+          id: isPrefill ? newMessages[newMessages.length - 1].id : crypto.randomUUID(),
           role: 'assistant',
-          content: result.content,
+          content: finalContent,
           thinking: result.thinking || undefined,
           generatedImages: result.images.length > 0 ? result.images : undefined,
           createdAt: new Date().toISOString(),
           model: model,
           usage: result.usage || undefined,
+          ...(isPrefill && { isPrefill: true, originalPrefill: content }),
         }
 
-        const finalMessages = [...newMessages, assistantMessage]
+        // For prefill, replace the prefill message; for normal, append
+        const finalMessages = isPrefill 
+          ? [...newMessages.slice(0, -1), assistantMessage]
+          : [...newMessages, assistantMessage]
         await saveMessages(sessionId, finalMessages)
         
         setIsStreaming(false)
@@ -451,6 +495,7 @@ export function ChatContainer() {
               createdAt: new Date().toISOString(),
               model: pendingModelRef.current,
               usage: streamingUsageRef.current || undefined,
+              ...(isPrefill && { isPrefill: true, originalPrefill: content }),
             }
             const finalMessages = [...pendingMessagesRef.current, assistantMessage]
             await saveMessages(pendingSessionIdRef.current!, finalMessages)
@@ -1035,6 +1080,264 @@ export function ChatContainer() {
     }
   }
 
+  const handleReprefill = async (messageIndex: number) => {
+    const message = messages[messageIndex]
+    if (!message || message.role !== 'assistant' || !message.isPrefill || !currentSessionId) return
+
+    const originalPrefill = message.originalPrefill ?? message.content
+    const previousMessages = messages.slice(0, messageIndex)
+    const prefillModel = message.model as typeof model || model
+
+    setMessages(previousMessages)
+    
+    setIsStreaming(true)
+    userScrolledRef.current = false
+    pendingSessionIdRef.current = currentSessionId
+    pendingModelRef.current = prefillModel
+
+    const prefillMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: originalPrefill,
+      createdAt: new Date().toISOString(),
+      model: prefillModel,
+      isPrefill: true,
+      originalPrefill,
+    }
+    const messagesForApi = [...previousMessages, prefillMessage]
+    pendingMessagesRef.current = messagesForApi
+
+    if (variationCount === 1) {
+      setStreamingContent(originalPrefill)
+      setStreamingThinking('')
+      setStreamingImages([])
+      setStreamingUsage(null)
+      streamingContentRef.current = originalPrefill
+      streamingThinkingRef.current = ''
+      streamingImagesRef.current = []
+      streamingUsageRef.current = null
+
+      abortControllerRef.current = new AbortController()
+
+      try {
+        const result = await streamSingleResponse(
+          messagesForApi,
+          abortControllerRef.current.signal,
+          (data) => {
+            if (data.content) {
+              streamingContentRef.current += data.content
+              setStreamingContent(streamingContentRef.current)
+            }
+            if (data.thinking) {
+              streamingThinkingRef.current += data.thinking
+              setStreamingThinking(streamingThinkingRef.current)
+            }
+            if (data.image) {
+              streamingImagesRef.current = [...streamingImagesRef.current, data.image]
+              setStreamingImages(streamingImagesRef.current)
+            }
+            if (data.usage) {
+              streamingUsageRef.current = data.usage
+              setStreamingUsage(data.usage)
+            }
+          },
+          { isPrefill: true }
+        )
+
+        const finalContent = originalPrefill + result.content
+
+        const newAssistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: finalContent,
+          thinking: result.thinking || undefined,
+          generatedImages: result.images.length > 0 ? result.images : undefined,
+          createdAt: new Date().toISOString(),
+          model: prefillModel,
+          usage: result.usage || undefined,
+          isPrefill: true,
+          originalPrefill,
+          siblings: [message],
+          activeSiblingIndex: 1,
+        }
+
+        const finalMessages = [...previousMessages, newAssistantMessage]
+        await saveMessages(currentSessionId, finalMessages)
+
+        setIsStreaming(false)
+        setTimeout(() => {
+          setStreamingContent('')
+          setStreamingThinking('')
+          setStreamingImages([])
+          setStreamingUsage(null)
+          streamingUsageRef.current = null
+        }, 0)
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Reprefill error:', error)
+          const restoredMessages = [...previousMessages, message]
+          setMessages(restoredMessages)
+        }
+        setIsStreaming(false)
+        setStreamingContent('')
+        setStreamingThinking('')
+        setStreamingImages([])
+        setStreamingUsage(null)
+        streamingUsageRef.current = null
+      } finally {
+        abortControllerRef.current = null
+      }
+    } else {
+      const initialVariations = Array.from({ length: variationCount }, () => ({
+        content: originalPrefill,
+        thinking: '',
+        images: [] as GeneratedImage[],
+        retryIn: null as number | null,
+        error: null as string | null,
+      }))
+      setStreamingVariations(initialVariations)
+      streamingVariationsRef.current = initialVariations
+      setActiveStreamingVariation(0)
+
+      abortControllersRef.current = Array.from({ length: variationCount }, () => new AbortController())
+
+      const streamWithRetry = async (
+        index: number,
+        attempt: number = 0
+      ): Promise<{ content: string; thinking: string; images: GeneratedImage[]; usage: TokenUsage | null }> => {
+        const maxRetries = 5
+        const baseDelay = 2000
+
+        try {
+          abortControllersRef.current[index] = new AbortController()
+          
+          const result = await streamSingleResponse(
+            messagesForApi,
+            abortControllersRef.current[index].signal,
+            (data) => {
+              const current = streamingVariationsRef.current[index]
+              const updated = {
+                content: data.content ? current.content + data.content : current.content,
+                thinking: data.thinking ? current.thinking + data.thinking : current.thinking,
+                images: data.image ? [...current.images, data.image] : current.images,
+                retryIn: null,
+                error: null,
+              }
+              streamingVariationsRef.current = [
+                ...streamingVariationsRef.current.slice(0, index),
+                updated,
+                ...streamingVariationsRef.current.slice(index + 1),
+              ]
+              setStreamingVariations([...streamingVariationsRef.current])
+            },
+            { isPrefill: true }
+          )
+          return result
+        } catch (error) {
+          if ((error as Error).name === 'AbortError') {
+            throw error
+          }
+          
+          const isRateLimit = (error as Error).message?.includes('429') || 
+                              (error as Error).message?.includes('rate') ||
+                              (error as Error).message?.includes('Too Many')
+          
+          if (isRateLimit && attempt < maxRetries) {
+            const delaySeconds = Math.pow(2, attempt) * (baseDelay / 1000)
+            
+            for (let remaining = delaySeconds; remaining > 0; remaining--) {
+              const current = streamingVariationsRef.current[index]
+              const updated = { ...current, retryIn: remaining, error: null }
+              streamingVariationsRef.current = [
+                ...streamingVariationsRef.current.slice(0, index),
+                updated,
+                ...streamingVariationsRef.current.slice(index + 1),
+              ]
+              setStreamingVariations([...streamingVariationsRef.current])
+              
+              await new Promise(resolve => setTimeout(resolve, 1000))
+            }
+            
+            const current = streamingVariationsRef.current[index]
+            const reset = { ...current, retryIn: null, content: originalPrefill, thinking: '', images: [] }
+            streamingVariationsRef.current = [
+              ...streamingVariationsRef.current.slice(0, index),
+              reset,
+              ...streamingVariationsRef.current.slice(index + 1),
+            ]
+            setStreamingVariations([...streamingVariationsRef.current])
+            
+            return streamWithRetry(index, attempt + 1)
+          }
+          
+          const current = streamingVariationsRef.current[index]
+          const errorMsg = isRateLimit ? 'Max retries exceeded' : 'Request failed'
+          const updated = { ...current, retryIn: null, error: errorMsg }
+          streamingVariationsRef.current = [
+            ...streamingVariationsRef.current.slice(0, index),
+            updated,
+            ...streamingVariationsRef.current.slice(index + 1),
+          ]
+          setStreamingVariations([...streamingVariationsRef.current])
+          
+          return { content: current.content, thinking: current.thinking, images: current.images, usage: null }
+        }
+      }
+
+      const streamPromises = Array.from({ length: variationCount }, (_, index) =>
+        streamWithRetry(index)
+      )
+
+      try {
+        const results = await Promise.all(streamPromises)
+        
+        const variations: Message[] = results.map((result) => ({
+          id: crypto.randomUUID(),
+          role: 'assistant' as const,
+          content: originalPrefill + result.content,
+          thinking: result.thinking || undefined,
+          generatedImages: result.images.length > 0 ? result.images : undefined,
+          createdAt: new Date().toISOString(),
+          model: prefillModel,
+          usage: result.usage || undefined,
+          isPrefill: true,
+          originalPrefill,
+        }))
+
+        const activeIndex = Math.min(
+          Math.max(activeStreamingVariation, 0),
+          Math.max(variations.length - 1, 0)
+        )
+        const activeVariation = variations[activeIndex] || variations[0]
+        const messageWithVariations: Message = {
+          ...activeVariation,
+          variations: variations,
+          activeVariationIndex: activeIndex,
+          siblings: [message],
+          activeSiblingIndex: 1,
+        }
+
+        const finalMessages = [...previousMessages, messageWithVariations]
+        await saveMessages(currentSessionId, finalMessages)
+        
+        setIsStreaming(false)
+        setTimeout(() => {
+          setStreamingVariations([])
+          streamingVariationsRef.current = []
+        }, 0)
+      } catch (error) {
+        console.error('Parallel prefill streaming error:', error)
+        const restoredMessages = [...previousMessages, message]
+        setMessages(restoredMessages)
+        setIsStreaming(false)
+        setStreamingVariations([])
+        streamingVariationsRef.current = []
+      } finally {
+        abortControllersRef.current = []
+      }
+    }
+  }
+
   const handleNavigateSibling = async (messageIndex: number, direction: 'prev' | 'next') => {
     const message = messages[messageIndex]
     if (!message || !message.siblings || message.siblings.length === 0 || !currentSessionId) return
@@ -1272,8 +1575,11 @@ export function ChatContainer() {
                       siblingCount={siblingCount}
                       siblingIndex={siblingIndex}
                       variationIndex={flowColorIndex}
+                      isPrefill={message.isPrefill}
+                      originalPrefill={message.originalPrefill}
                       onEdit={(newContent) => handleEditMessage(index, newContent)}
                       onRetry={message.role === 'assistant' ? () => handleRetryMessage(index) : undefined}
+                      onReprefill={message.isPrefill ? () => handleReprefill(index) : undefined}
                       onNavigateSibling={siblingCount > 1 ? (dir) => handleNavigateSibling(index, dir) : undefined}
                       onDelete={() => handleDeleteMessage(index)}
                       onAddBefore={() => handleAddMessageBefore(index, message.role as 'user' | 'assistant')}
@@ -1322,6 +1628,13 @@ export function ChatContainer() {
           </div>
         </div>
       </div>
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        sessions={sessions}
+        onSelectSession={handleSelectSession}
+        onNewSession={handleNewSession}
+      />
     </div>
   )
 }

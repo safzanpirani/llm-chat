@@ -274,6 +274,63 @@ export function chatApiPlugin(): Plugin {
         const url = req.url || ''
         const method = req.method || 'GET'
 
+        if (url === '/api/generate-title' && method === 'POST') {
+          try {
+            const bodyStr = await parseBody(req)
+            const body = JSON.parse(bodyStr)
+            const message = body.message || ''
+
+            if (!message) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: 'Message required' }))
+              return
+            }
+
+            const endpoint = `${GOOGLE_BASE_URL}/models/gemini-3-flash:generateContent`
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': 'dummy-google-api-key-for-proxy-usage',
+              },
+              body: JSON.stringify({
+                contents: [{
+                  role: 'user',
+                  parts: [{ text: `Generate a very short title (max 15 characters) for this chat message. Return ONLY the title, no quotes or extra text:\n\n${message.slice(0, 500)}` }],
+                }],
+                generationConfig: {
+                  maxOutputTokens: 20,
+                  temperature: 0.7,
+                },
+              }),
+            })
+
+            if (!response.ok) {
+              const errorText = await response.text()
+              console.error('Title generation error:', response.status, errorText)
+              res.statusCode = response.status
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: errorText }))
+              return
+            }
+
+            const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+            const title = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'New Chat'
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ title }))
+            return
+          } catch (error) {
+            console.error('Title generation error:', error)
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Internal server error' }))
+            return
+          }
+        }
+
         if (url === '/api/chat' && method === 'POST') {
           try {
             const bodyStr = await parseBody(req)
@@ -335,7 +392,7 @@ export function chatApiPlugin(): Plugin {
                   }
                 }),
                 ...(systemMessage && { system: systemMessage.content }),
-                ...(isClaudeThinkingModel && {
+                ...(isClaudeThinkingModel && !body.disableThinking && {
                   thinking: {
                     type: 'enabled',
                     budget_tokens: 10000,

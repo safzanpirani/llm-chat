@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, Square, Paperclip, X, FileText } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageSquarePlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface ChatInputHandle {
@@ -18,7 +18,7 @@ export interface Attachment {
 }
 
 interface ChatInputProps {
-  onSend: (message: string, attachments?: Attachment[]) => void
+  onSend: (message: string, attachments?: Attachment[], isPrefill?: boolean) => void
   onStop?: () => void
   isLoading?: boolean
   disabled?: boolean
@@ -46,6 +46,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const [input, setInput] = useState('')
     const [attachments, setAttachments] = useState<Attachment[]>([])
     const [isDragging, setIsDragging] = useState(false)
+    const [isPrefillMode, setIsPrefillMode] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -139,7 +140,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
     const handleSubmit = () => {
       if ((!input.trim() && attachments.length === 0) || disabled) return
-      onSend(input.trim(), attachments)
+      onSend(input.trim(), attachments, isPrefillMode)
       setInput('')
       setAttachments([])
       if (textareaRef.current) {
@@ -212,6 +213,21 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             >
               <Paperclip className="h-4 w-4" />
             </Button>
+            <Button
+              variant={isPrefillMode ? "default" : "outline"}
+              size="icon"
+              className={cn(
+                "shrink-0",
+                isPrefillMode 
+                  ? "bg-violet-600 hover:bg-violet-700 text-white" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={() => setIsPrefillMode(!isPrefillMode)}
+              disabled={disabled}
+              title={isPrefillMode ? "Prefill mode: ON - AI will continue your text" : "Prefill mode: OFF - Normal message"}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </Button>
             
             <Textarea
               ref={textareaRef}
@@ -219,11 +235,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="Type a message..."
+              placeholder={isPrefillMode ? "Type text for AI to continue..." : "Type a message..."}
               disabled={disabled}
               className={cn(
                 'min-h-[44px] max-h-[400px] resize-none',
-                'focus-visible:ring-1'
+                'focus-visible:ring-1',
+                isPrefillMode && 'border-violet-500 focus-visible:ring-violet-500'
               )}
               rows={1}
             />
@@ -241,7 +258,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 onClick={handleSubmit}
                 disabled={(!input.trim() && attachments.length === 0) || disabled}
                 size="icon"
-                className="shrink-0"
+                className={cn("shrink-0", isPrefillMode && "bg-violet-600 hover:bg-violet-700")}
               >
                 <Send className="h-4 w-4" />
               </Button>

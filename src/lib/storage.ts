@@ -47,6 +47,9 @@ export interface Message {
   // Variation support: multiple parallel responses
   variations?: Message[]
   activeVariationIndex?: number
+  // Prefill support: marks this as a prefill message (AI continues from this text)
+  isPrefill?: boolean
+  originalPrefill?: string
 }
 
 export interface Session extends SessionMeta {

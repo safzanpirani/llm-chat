@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Streamdown } from 'streamdown'
-import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw, Trash2, Plus } from 'lucide-react'
+import { User, Bot, Copy, Check, Pencil, FileText, ChevronDown, ChevronRight, ChevronLeft, Brain, Download, RotateCcw, Trash2, Plus, RefreshCw } from 'lucide-react'
 import { Lightbox } from '@/components/ui/lightbox'
 import type { GeneratedImage } from '@/lib/storage'
 
@@ -30,8 +30,11 @@ interface ChatMessageProps {
   siblingCount?: number
   siblingIndex?: number
   variationIndex?: number
+  isPrefill?: boolean
+  originalPrefill?: string
   onEdit?: (newContent: string) => void
   onRetry?: () => void
+  onReprefill?: () => void
   onNavigateSibling?: (direction: 'prev' | 'next') => void
   onDelete?: () => void
   onAddBefore?: (role: 'user' | 'assistant') => void
@@ -49,8 +52,11 @@ export function ChatMessage({
   siblingCount = 1,
   siblingIndex = 0,
   variationIndex,
+  isPrefill,
+  originalPrefill,
   onEdit,
   onRetry,
+  onReprefill,
   onNavigateSibling,
   onDelete,
   onAddBefore,
@@ -195,6 +201,15 @@ export function ChatMessage({
                   title="Retry"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {!isUser && isPrefill && onReprefill && (
+                <button
+                  onClick={onReprefill}
+                  className="p-1 text-violet-500 hover:text-violet-400 rounded hover:bg-background/50"
+                  title="Continue again (regenerate prefill)"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
                 </button>
               )}
               <button
