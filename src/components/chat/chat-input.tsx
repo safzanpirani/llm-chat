@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send, Square, Paperclip, X, FileText, MessageSquarePlus } from 'lucide-react'
+import { Send, Square, Paperclip, X, FileText, MessageSquarePlus, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { VariationCount } from '@/lib/storage'
 
 export interface ChatInputHandle {
   setValue: (value: string) => void
@@ -22,6 +23,8 @@ interface ChatInputProps {
   onStop?: () => void
   isLoading?: boolean
   disabled?: boolean
+  variationCount?: VariationCount
+  onVariationChange?: (count: VariationCount) => void
 }
 
 const MAX_HEIGHT = 400
@@ -42,11 +45,12 @@ async function fileToAttachment(file: File): Promise<Attachment> {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  ({ onSend, onStop, isLoading, disabled }, ref) => {
+  ({ onSend, onStop, isLoading, disabled, variationCount = 1, onVariationChange }, ref) => {
     const [input, setInput] = useState('')
     const [attachments, setAttachments] = useState<Attachment[]>([])
     const [isDragging, setIsDragging] = useState(false)
     const [isPrefillMode, setIsPrefillMode] = useState(false)
+    const [showVariationPicker, setShowVariationPicker] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -159,14 +163,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       <div
         ref={containerRef}
         className={cn(
-          'border-t bg-background p-4 transition-colors',
+          'border-t bg-background p-2 md:p-4 transition-colors',
           isDragging && 'bg-muted/50 border-primary'
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-3xl px-0">
           {isDragging && (
             <div className="flex items-center justify-center py-4 mb-3 border-2 border-dashed border-primary rounded-lg text-muted-foreground">
               Drop files here
@@ -195,7 +199,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             </div>
           )}
           
-          <div className="flex gap-2 items-end">
+          <div className="flex gap-1 md:gap-2 items-end">
             <input
               type="file"
               ref={fileInputRef}
@@ -207,7 +211,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             <Button
               variant="outline"
               size="icon"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground h-9 w-9 md:h-10 md:w-10"
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled}
             >
@@ -217,7 +221,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               variant={isPrefillMode ? "default" : "outline"}
               size="icon"
               className={cn(
-                "shrink-0",
+                "shrink-0 h-9 w-9 md:h-10 md:w-10",
                 isPrefillMode 
                   ? "bg-violet-600 hover:bg-violet-700 text-white" 
                   : "text-muted-foreground hover:text-foreground"
@@ -228,6 +232,46 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             >
               <MessageSquarePlus className="h-4 w-4" />
             </Button>
+            {onVariationChange && (
+              <div className="relative md:hidden">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 text-muted-foreground hover:text-foreground h-9 w-9"
+                  onClick={() => setShowVariationPicker(!showVariationPicker)}
+                  disabled={disabled}
+                  title={`Variations: x${variationCount}`}
+                >
+                  <Layers className="h-4 w-4" />
+                  {variationCount > 1 && (
+                    <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] text-primary-foreground flex items-center justify-center">
+                      {variationCount}
+                    </span>
+                  )}
+                </Button>
+                {showVariationPicker && (
+                  <div className="absolute bottom-full mb-2 left-0 bg-popover border rounded-lg shadow-lg p-1 flex gap-1">
+                    {([1, 2, 3, 4] as VariationCount[]).map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => {
+                          onVariationChange(v)
+                          setShowVariationPicker(false)
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 text-sm rounded-md transition-colors",
+                          variationCount === v
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-muted"
+                        )}
+                      >
+                        x{v}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             
             <Textarea
               ref={textareaRef}
@@ -238,7 +282,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               placeholder={isPrefillMode ? "Type text for AI to continue..." : "Type a message..."}
               disabled={disabled}
               className={cn(
-                'min-h-[44px] max-h-[400px] resize-none',
+                'min-h-[36px] md:min-h-[44px] max-h-[400px] resize-none text-sm md:text-base',
                 'focus-visible:ring-1',
                 isPrefillMode && 'border-violet-500 focus-visible:ring-violet-500'
               )}
@@ -249,7 +293,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 variant="destructive"
                 size="icon"
                 onClick={onStop}
-                className="shrink-0"
+                className="shrink-0 h-9 w-9 md:h-10 md:w-10"
               >
                 <Square className="h-4 w-4" />
               </Button>
@@ -258,7 +302,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 onClick={handleSubmit}
                 disabled={(!input.trim() && attachments.length === 0) || disabled}
                 size="icon"
-                className={cn("shrink-0", isPrefillMode && "bg-violet-600 hover:bg-violet-700")}
+                className={cn("shrink-0 h-9 w-9 md:h-10 md:w-10", isPrefillMode && "bg-violet-600 hover:bg-violet-700")}
               >
                 <Send className="h-4 w-4" />
               </Button>

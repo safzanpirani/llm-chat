@@ -1677,18 +1677,22 @@ export function ChatContainer() {
             )}
           </div>
         </ScrollArea>
-        <div className="border-t px-4 py-2 flex items-center gap-3">
-          <VariationSelector
-            value={variationCount}
-            onChange={setVariationCount}
-            disabled={isStreaming}
-          />
-          <div className="flex-1">
+        <div className="border-t px-2 md:px-4 py-2 flex items-center gap-2 md:gap-3">
+          <div className="hidden md:block">
+            <VariationSelector
+              value={variationCount}
+              onChange={setVariationCount}
+              disabled={isStreaming}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
             <ChatInput
               ref={chatInputRef}
               onSend={handleSend}
               onStop={handleStop}
               isLoading={isStreaming}
+              variationCount={variationCount}
+              onVariationChange={setVariationCount}
             />
           </div>
         </div>
