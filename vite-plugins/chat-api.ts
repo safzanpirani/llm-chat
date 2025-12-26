@@ -287,7 +287,7 @@ export function chatApiPlugin(): Plugin {
               return
             }
 
-            const endpoint = `${GOOGLE_BASE_URL}/models/gemini-3-flash:generateContent`
+            const endpoint = `${GOOGLE_BASE_URL}/models/gemini-2.5-flash:generateContent`
             const response = await fetch(endpoint, {
               method: 'POST',
               headers: {
