@@ -97,11 +97,13 @@ export function SessionSidebar({
       {/* Sidebar */}
       <div
         className={cn(
-          'flex h-full w-64 flex-col border-r bg-muted/30 transition-transform duration-300 ease-in-out',
+          'flex h-full w-64 flex-col border-r bg-muted/30 transition-all duration-300 ease-in-out',
           // Mobile: fixed overlay positioning
-          'fixed inset-y-0 left-0 z-50 md:relative md:z-auto',
-          // Transform based on open state - on mobile slides in/out, on desktop collapses
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+          'fixed inset-y-0 left-0 z-50',
+          // Desktop: relative positioning, shrink width when closed
+          'md:relative md:z-auto',
+          // Transform based on open state
+          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0 md:overflow-hidden'
         )}
       >
         <div className="flex items-center justify-between p-4">

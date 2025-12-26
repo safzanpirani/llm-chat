@@ -120,23 +120,16 @@ export function useSessions() {
       const titleContent = firstUserMessage?.content || firstPrefillMessage?.originalPrefill || firstPrefillMessage?.content
       const fallbackTitle = titleContent?.slice(0, 30) || 'New Chat'
 
-      let currentTitle: string | undefined
-      let shouldGenerateTitle = false
+      const shouldGenerate = Boolean(titleSource) && !titleRequestRef.current.has(sessionId)
+      
+      if (shouldGenerate) {
+        titleRequestRef.current.add(sessionId)
+      }
       
       setSessions((prev) => {
         const currentSession = prev.find((s) => s.id === sessionId)
-        currentTitle = currentSession?.title
-        
-        shouldGenerateTitle =
-          Boolean(titleSource) &&
-          !titleRequestRef.current.has(sessionId) &&
-          (!currentSession || currentSession.title === 'New Chat')
-        
-        if (shouldGenerateTitle) {
-          titleRequestRef.current.add(sessionId)
-        }
-        
-        const title = shouldGenerateTitle ? fallbackTitle : (currentTitle || 'New Chat')
+        const needsTitle = !currentSession || currentSession.title === 'New Chat'
+        const title = (shouldGenerate && needsTitle) ? fallbackTitle : (currentSession?.title || 'New Chat')
         
         storage.updateSession(sessionId, { messages: newMessages, title }).catch(() => {})
         
@@ -152,7 +145,7 @@ export function useSessions() {
       
       setMessages(newMessages)
 
-      if (shouldGenerateTitle && titleContent) {
+      if (shouldGenerate && titleContent) {
         generateTitle(titleContent).then((aiTitle) => {
           setSessions((prev) => {
             const target = prev.find((s) => s.id === sessionId)
