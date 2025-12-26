@@ -139,20 +139,20 @@ export function ChatMessage({
   return (
     <div
       className={cn(
-        'group flex gap-3 px-4 py-6 border-l-4',
+        'group flex gap-2 md:gap-3 px-2 md:px-4 py-4 md:py-6 border-l-4',
         isUser ? 'bg-background' : 'bg-muted/50',
         accentColor
       )}
     >
       <div
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+          'hidden md:flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
           isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary'
         )}
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="flex-1 space-y-2 overflow-hidden">
+      <div className="flex-1 space-y-2 overflow-hidden min-w-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold select-none">

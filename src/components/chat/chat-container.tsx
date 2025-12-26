@@ -1545,7 +1545,7 @@ export function ChatContainer() {
           ref={scrollRef}
           onScrollCapture={handleScroll}
         >
-          <div className="px-4 pb-4 flex flex-col gap-2">
+          <div className="px-0 md:px-4 pb-4 flex flex-col gap-2">
             {messages.length === 0 && !streamingContent && streamingImages.length === 0 && streamingVariations.length === 0 ? (
               <div className="flex h-[calc(100vh-200px)] items-center justify-center text-muted-foreground">
                 <p>Start a new conversation</p>
