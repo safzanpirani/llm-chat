@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Plus, MessageSquare, Trash2, Pencil, Check, X, PanelLeftClose } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, Pencil, Check, X, PanelLeftClose, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SessionMeta } from '@/lib/storage'
 
@@ -12,6 +12,7 @@ interface SessionSidebarProps {
   onNewSession: () => void
   onDeleteSession: (id: string) => void
   onRenameSession: (id: string, newTitle: string) => void
+  onForkSession?: (id: string) => void
   isOpen: boolean
   onClose: () => void
 }
@@ -35,6 +36,7 @@ export function SessionSidebar({
   onNewSession,
   onDeleteSession,
   onRenameSession,
+  onForkSession,
   isOpen,
   onClose,
 }: SessionSidebarProps) {
@@ -154,7 +156,9 @@ export function SessionSidebar({
                       autoFocus
                     />
                   ) : (
-                    <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                    <span className="min-w-0 flex-1 truncate" title={session.title}>
+                      {session.title.length > 15 ? session.title.slice(0, 15) + '…' : session.title}
+                    </span>
                   )}
                 </a>
                 <div className="flex shrink-0 items-center gap-1">
@@ -193,9 +197,24 @@ export function SessionSidebar({
                           e.preventDefault()
                           startEditing(session)
                         }}
+                        title="Rename"
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
+                      {onForkSession && (
+                        <button
+                          type="button"
+                          className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            onForkSession(session.id)
+                          }}
+                          title="Duplicate"
+                        >
+                          <Copy className="h-3 w-3" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-background/50 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
@@ -204,6 +223,7 @@ export function SessionSidebar({
                           e.preventDefault()
                           onDeleteSession(session.id)
                         }}
+                        title="Delete"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>

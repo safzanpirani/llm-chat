@@ -11,7 +11,8 @@ import { VariationSelector } from './variation-selector'
 import { VariationGroup } from './variation-group'
 import { SearchModal } from './search-modal'
 import { Button } from '@/components/ui/button'
-import { Menu, PanelLeft } from 'lucide-react'
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy } from 'lucide-react'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
@@ -31,6 +32,7 @@ export function ChatContainer() {
     createSession,
     deleteSession,
     renameSession,
+    forkSession,
     saveMessages,
     setMessages,
   } = useSessions()
@@ -40,6 +42,9 @@ export function ChatContainer() {
   const [resolution, setResolution] = useState<typeof RESOLUTIONS[number]>('1K')
   const [variationCount, setVariationCount] = useState<VariationCount>(1)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     // Initialize sidebar open on desktop (md breakpoint = 768px)
     if (typeof window !== 'undefined') {
@@ -1446,6 +1451,7 @@ export function ChatContainer() {
         onNewSession={handleNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
+        onForkSession={forkSession}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
@@ -1500,6 +1506,38 @@ export function ChatContainer() {
               <TokenTracker latestUsage={latestUsage} totalUsage={totalUsage} model={model} />
             )}
             <ThemeToggle />
+            {currentSessionId && (
+              <DropdownMenu
+                trigger={
+                  <Button variant="ghost" size="icon">
+                    <MoreVertical className="h-5 w-5" />
+                  </Button>
+                }
+              >
+                <DropdownMenuItem
+                  onClick={() => {
+                    const session = sessions.find(s => s.id === currentSessionId)
+                    setRenameValue(session?.title || '')
+                    setIsRenaming(true)
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => forkSession(currentSessionId)}>
+                  <Copy className="h-4 w-4" />
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenu>
+            )}
           </div>
         </header>
         <ScrollArea 
@@ -1662,6 +1700,64 @@ export function ChatContainer() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
       />
+      {isRenaming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setIsRenaming(false)} />
+          <div className="relative z-50 w-full max-w-sm rounded-lg border bg-popover p-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-3">Rename Chat</h3>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && renameValue.trim() && currentSessionId) {
+                  renameSession(currentSessionId, renameValue.trim())
+                  setIsRenaming(false)
+                }
+                if (e.key === 'Escape') setIsRenaming(false)
+              }}
+              className="w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="ghost" onClick={() => setIsRenaming(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  if (renameValue.trim() && currentSessionId) {
+                    renameSession(currentSessionId, renameValue.trim())
+                    setIsRenaming(false)
+                  }
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative z-50 w-full max-w-sm rounded-lg border bg-popover p-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Delete Chat</h3>
+            <p className="text-sm text-muted-foreground mb-4">Are you sure you want to delete this chat? This action cannot be undone.</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (currentSessionId) {
+                    deleteSession(currentSessionId)
+                    setShowDeleteConfirm(false)
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
