@@ -62,27 +62,27 @@ export function SessionSidebar({
   }
 
   const handleSessionClick = (e: React.MouseEvent, sessionId: string) => {
-    // Allow ctrl/cmd+click to open in new tab (default anchor behavior)
     if (e.ctrlKey || e.metaKey) {
       return
     }
     e.preventDefault()
     if (editingId !== sessionId) {
       onSelectSession(sessionId)
-      // Close sidebar on mobile after selection
-      onClose()
+      if (window.innerWidth < 768) {
+        onClose()
+      }
     }
   }
 
   const handleNewChatClick = (e: React.MouseEvent) => {
-    // Allow ctrl/cmd+click to open in new tab
     if (e.ctrlKey || e.metaKey) {
       return
     }
     e.preventDefault()
     onNewSession()
-    // Close sidebar on mobile after creating new chat
-    onClose()
+    if (window.innerWidth < 768) {
+      onClose()
+    }
   }
 
   return (
@@ -157,7 +157,7 @@ export function SessionSidebar({
                     />
                   ) : (
                     <span className="min-w-0 flex-1 truncate" title={session.title}>
-                      {session.title.length > 15 ? session.title.slice(0, 15) + '…' : session.title}
+                      {session.title.length > 12 ? session.title.slice(0, 12) + '…' : session.title}
                     </span>
                   )}
                 </a>
