@@ -114,27 +114,32 @@ export function useSessions() {
   const saveMessages = useCallback(async (sessionId: string, newMessages: Message[]) => {
     try {
       const updatedAt = new Date().toISOString()
-      const currentSession = sessions.find((s) => s.id === sessionId)
       const firstUserMessage = newMessages.find((m) => m.role === 'user')
       const firstPrefillMessage = newMessages.find((m) => m.role === 'assistant' && m.isPrefill)
       const titleSource = firstUserMessage || firstPrefillMessage
       const titleContent = firstUserMessage?.content || firstPrefillMessage?.originalPrefill || firstPrefillMessage?.content
       const fallbackTitle = titleContent?.slice(0, 30) || 'New Chat'
-      const shouldGenerateTitle =
-        Boolean(titleSource) &&
-        !titleRequestRef.current.has(sessionId) &&
-        (!currentSession || currentSession.title === 'New Chat')
 
-      let title = currentSession?.title || 'New Chat'
-
-      if (shouldGenerateTitle) {
-        title = fallbackTitle
-        titleRequestRef.current.add(sessionId)
-      }
-
-      await storage.updateSession(sessionId, { messages: newMessages, title })
-      setMessages(newMessages)
+      let currentTitle: string | undefined
+      let shouldGenerateTitle = false
+      
       setSessions((prev) => {
+        const currentSession = prev.find((s) => s.id === sessionId)
+        currentTitle = currentSession?.title
+        
+        shouldGenerateTitle =
+          Boolean(titleSource) &&
+          !titleRequestRef.current.has(sessionId) &&
+          (!currentSession || currentSession.title === 'New Chat')
+        
+        if (shouldGenerateTitle) {
+          titleRequestRef.current.add(sessionId)
+        }
+        
+        const title = shouldGenerateTitle ? fallbackTitle : (currentTitle || 'New Chat')
+        
+        storage.updateSession(sessionId, { messages: newMessages, title }).catch(() => {})
+        
         const updated = prev.map((s) =>
           s.id === sessionId
             ? { ...s, title, updatedAt }
@@ -144,6 +149,8 @@ export function useSessions() {
         const rest = updated.filter((s) => s.id !== sessionId)
         return active ? [active, ...rest] : updated
       })
+      
+      setMessages(newMessages)
 
       if (shouldGenerateTitle && titleContent) {
         generateTitle(titleContent).then((aiTitle) => {
@@ -162,7 +169,7 @@ export function useSessions() {
     } catch (error) {
       console.error('Failed to save messages:', error)
     }
-  }, [sessions])
+  }, [])
 
   const forkSession = useCallback(async (id: string) => {
     try {

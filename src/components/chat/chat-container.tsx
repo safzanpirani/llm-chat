@@ -10,6 +10,8 @@ import { TokenTracker } from './token-tracker'
 import { VariationSelector } from './variation-selector'
 import { VariationGroup } from './variation-group'
 import { SearchModal } from './search-modal'
+import { Button } from '@/components/ui/button'
+import { Menu, PanelLeft } from 'lucide-react'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
@@ -38,6 +40,13 @@ export function ChatContainer() {
   const [resolution, setResolution] = useState<typeof RESOLUTIONS[number]>('1K')
   const [variationCount, setVariationCount] = useState<VariationCount>(1)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    // Initialize sidebar open on desktop (md breakpoint = 768px)
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768
+    }
+    return false
+  })
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
@@ -1437,10 +1446,28 @@ export function ChatContainer() {
         onNewSession={handleNewSession}
         onDeleteSession={deleteSession}
         onRenameSession={renameSession}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b px-4 py-3 gap-3">
           <div className="flex items-center gap-3">
+            {/* Sidebar toggle button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="shrink-0"
+            >
+              {isSidebarOpen ? (
+                <PanelLeft className="h-5 w-5" />
+              ) : (
+                <>
+                  <Menu className="h-5 w-5 md:hidden" />
+                  <PanelLeft className="h-5 w-5 hidden md:block" />
+                </>
+              )}
+            </Button>
             <ModelSelector
               value={model}
               onChange={setModel}
