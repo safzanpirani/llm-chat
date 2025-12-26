@@ -116,9 +116,12 @@ export function useSessions() {
       const updatedAt = new Date().toISOString()
       const currentSession = sessions.find((s) => s.id === sessionId)
       const firstUserMessage = newMessages.find((m) => m.role === 'user')
-      const fallbackTitle = firstUserMessage?.content.slice(0, 30) || 'New Chat'
+      const firstPrefillMessage = newMessages.find((m) => m.role === 'assistant' && m.isPrefill)
+      const titleSource = firstUserMessage || firstPrefillMessage
+      const titleContent = firstUserMessage?.content || firstPrefillMessage?.originalPrefill || firstPrefillMessage?.content
+      const fallbackTitle = titleContent?.slice(0, 30) || 'New Chat'
       const shouldGenerateTitle =
-        Boolean(firstUserMessage) &&
+        Boolean(titleSource) &&
         !titleRequestRef.current.has(sessionId) &&
         (!currentSession || currentSession.title === 'New Chat')
 
@@ -142,8 +145,8 @@ export function useSessions() {
         return active ? [active, ...rest] : updated
       })
 
-      if (shouldGenerateTitle && firstUserMessage) {
-        generateTitle(firstUserMessage.content).then((aiTitle) => {
+      if (shouldGenerateTitle && titleContent) {
+        generateTitle(titleContent).then((aiTitle) => {
           setSessions((prev) => {
             const target = prev.find((s) => s.id === sessionId)
             if (!target || (target.title !== fallbackTitle && target.title !== 'New Chat')) {
