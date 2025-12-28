@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { SVGRenderer } from './svg-renderer'
+import { SVGLightbox } from './svg-lightbox'
 import { SVG_PROMPTS, PROMPT_CATEGORIES, DIFFICULTY_COLORS, type SVGPrompt } from '@/lib/svg-prompts'
 import { MODEL_LIST, type ModelId } from '@/lib/models'
 import {
@@ -20,7 +21,9 @@ import {
   type BenchmarkRun,
   type BenchmarkResult,
 } from '@/lib/benchmark-storage'
-import { Play, Square, Download, Shuffle, ChevronLeft, History, Trash2, X } from 'lucide-react'
+import { Play, Square, Download, Shuffle, ChevronLeft, History, Trash2, X, LayoutGrid, List, Rows3 } from 'lucide-react'
+
+type LayoutMode = 'grid' | 'compact' | 'list'
 
 interface SVGBenchmarkContainerProps {
   onBack: () => void
@@ -36,6 +39,8 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState<BenchmarkRun[]>([])
   const [viewingRun, setViewingRun] = useState<BenchmarkRun | null>(null)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('compact')
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const abortControllersRef = useRef<AbortController[]>([])
 
   useEffect(() => {
@@ -224,8 +229,62 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
     ? viewingRun.results.map(r => r.modelId)
     : selectedModels
 
+  const getGridClasses = () => {
+    switch (layoutMode) {
+      case 'list':
+        return 'grid-cols-1'
+      case 'compact':
+        if (displayModels.length <= 2) return 'grid-cols-2'
+        if (displayModels.length <= 4) return 'grid-cols-4'
+        return 'grid-cols-6'
+      case 'grid':
+      default:
+        if (displayModels.length === 1) return 'grid-cols-1'
+        if (displayModels.length === 2) return 'grid-cols-2'
+        if (displayModels.length <= 4) return 'grid-cols-2'
+        return 'grid-cols-3'
+    }
+  }
+
+  const getCardClasses = () => {
+    switch (layoutMode) {
+      case 'list':
+        return 'flex flex-row h-48'
+      case 'compact':
+        return ''
+      case 'grid':
+      default:
+        return ''
+    }
+  }
+
+  const lightboxData = lightboxIndex !== null ? (() => {
+    const modelId = displayModels[lightboxIndex]
+    const result = displayResults.find(r => r.modelId === modelId)
+    const streaming = streamingOutputs[modelId]
+    return {
+      svgContent: result?.svgOutput || streaming || '',
+      modelId,
+      promptName: result?.promptName || selectedPrompt?.name || 'benchmark',
+      duration: result?.durationMs,
+    }
+  })() : null
+
   return (
     <div className="flex h-screen bg-background">
+      <SVGLightbox
+        isOpen={lightboxIndex !== null}
+        onClose={() => setLightboxIndex(null)}
+        svgContent={lightboxData?.svgContent || ''}
+        modelId={lightboxData?.modelId || 'gemini-2.5-flash'}
+        promptName={lightboxData?.promptName || ''}
+        duration={lightboxData?.duration}
+        onPrevious={() => setLightboxIndex(prev => prev !== null && prev > 0 ? prev - 1 : prev)}
+        onNext={() => setLightboxIndex(prev => prev !== null && prev < displayModels.length - 1 ? prev + 1 : prev)}
+        hasPrevious={lightboxIndex !== null && lightboxIndex > 0}
+        hasNext={lightboxIndex !== null && lightboxIndex < displayModels.length - 1}
+      />
+
       <div className="w-80 border-r border-border flex flex-col">
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between mb-4">
@@ -382,6 +441,35 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
               )}
             </div>
             <div className="flex gap-2">
+              <div className="flex border border-border rounded-md">
+                <Button
+                  variant={layoutMode === 'compact' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-9 w-9 rounded-r-none"
+                  onClick={() => setLayoutMode('compact')}
+                  title="Compact grid"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={layoutMode === 'grid' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-9 w-9 rounded-none border-x border-border"
+                  onClick={() => setLayoutMode('grid')}
+                  title="Large grid"
+                >
+                  <Rows3 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={layoutMode === 'list' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-9 w-9 rounded-l-none"
+                  onClick={() => setLayoutMode('list')}
+                  title="List view"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
               {isRunning ? (
                 <Button variant="destructive" onClick={stopBenchmark}>
                   <Square className="h-4 w-4 mr-2" />
@@ -426,12 +514,8 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
               Select at least one model to compare
             </div>
           ) : (
-            <div className={`grid gap-4 ${
-              displayModels.length === 1 ? 'grid-cols-1' :
-              displayModels.length === 2 ? 'grid-cols-2' :
-              displayModels.length <= 4 ? 'grid-cols-2' : 'grid-cols-3'
-            }`}>
-              {displayModels.map(modelId => {
+            <div className={`grid gap-4 ${getGridClasses()}`}>
+              {displayModels.map((modelId, index) => {
                 const model = MODEL_LIST.find(m => m.id === modelId)
                 const result = displayResults.find(r => r.modelId === modelId)
                 const streaming = streamingOutputs[modelId]
@@ -439,15 +523,20 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
                 const duration = result ? (result.durationMs / 1000).toFixed(2) : null
 
                 return (
-                  <div key={modelId} className="border border-border rounded-lg overflow-hidden">
-                    <div className="p-3 border-b border-border bg-muted/50 flex items-center justify-between">
+                  <div 
+                    key={modelId} 
+                    className={`border border-border rounded-lg overflow-hidden ${getCardClasses()}`}
+                  >
+                    <div className={`p-2 border-b border-border bg-muted/50 flex items-center justify-between ${
+                      layoutMode === 'list' ? 'border-b-0 border-r flex-col justify-start items-start w-48 shrink-0' : ''
+                    }`}>
                       <div className="flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${
                           model?.provider === 'anthropic' ? 'bg-orange-500' : 'bg-blue-500'
                         }`} />
-                        <span className="font-medium text-sm">{model?.name}</span>
+                        <span className="font-medium text-xs">{model?.name}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className={`flex items-center gap-2 ${layoutMode === 'list' ? 'mt-2' : ''}`}>
                         {duration && (
                           <span className="text-xs text-muted-foreground">{duration}s</span>
                         )}
@@ -456,14 +545,24 @@ export function SVGBenchmarkContainer({ onBack }: SVGBenchmarkContainerProps) {
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            onClick={() => downloadSVG(content, modelId, result?.promptName)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              downloadSVG(content, modelId, result?.promptName)
+                            }}
                           >
                             <Download className="h-3 w-3" />
                           </Button>
                         )}
                       </div>
                     </div>
-                    <div className="aspect-square">
+                    <div 
+                      className={`cursor-pointer hover:opacity-90 transition-opacity ${
+                        layoutMode === 'list' ? 'flex-1 h-full' : 
+                        layoutMode === 'compact' ? 'aspect-square' : 'aspect-square'
+                      }`}
+                      onClick={() => setLightboxIndex(index)}
+                      title="Click to view fullscreen"
+                    >
                       <SVGRenderer
                         svgContent={content}
                         className="w-full h-full"
