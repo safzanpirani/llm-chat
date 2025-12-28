@@ -12,7 +12,7 @@ import { VariationGroup } from './variation-group'
 import { SearchModal } from './search-modal'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy } from 'lucide-react'
+import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy, FlaskConical } from 'lucide-react'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
@@ -23,7 +23,11 @@ const RESOLUTIONS = ['1K', '2K', '4K'] as const
 
 const IMAGE_GENERATION_MODELS: ModelId[] = ['gemini-3-pro-image-preview']
 
-export function ChatContainer() {
+interface ChatContainerProps {
+  onOpenBenchmark?: () => void
+}
+
+export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
   const {
     sessions,
     currentSessionId,
@@ -1504,6 +1508,11 @@ export function ChatContainer() {
           <div className="flex items-center gap-3">
             {(latestUsage.totalTokens > 0 || totalUsage.totalTokens > 0) && (
               <TokenTracker latestUsage={latestUsage} totalUsage={totalUsage} model={model} />
+            )}
+            {onOpenBenchmark && (
+              <Button variant="ghost" size="icon" onClick={onOpenBenchmark} title="SVG Benchmark">
+                <FlaskConical className="h-5 w-5" />
+              </Button>
             )}
             <ThemeToggle />
             {currentSessionId && (
