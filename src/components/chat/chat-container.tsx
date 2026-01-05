@@ -10,9 +10,10 @@ import { TokenTracker } from './token-tracker'
 import { VariationSelector } from './variation-selector'
 import { VariationGroup } from './variation-group'
 import { SearchModal } from './search-modal'
+import { ChatInfoSidebar } from './chat-info-sidebar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy, FlaskConical } from 'lucide-react'
+import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy, FlaskConical, Info } from 'lucide-react'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
@@ -56,6 +57,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
     }
     return false
   })
+  const [isInfoSidebarOpen, setIsInfoSidebarOpen] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamingThinking, setStreamingThinking] = useState('')
@@ -1460,8 +1462,8 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
         onClose={() => setIsSidebarOpen(false)}
       />
       <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b px-4 py-3 gap-3">
-          <div className="flex items-center gap-3">
+        <header className="flex items-center justify-between border-b px-2 md:px-4 py-2 md:py-3 gap-2 md:gap-3">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
             {/* Sidebar toggle button */}
             <Button
               variant="ghost"
@@ -1505,9 +1507,11 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
               </>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {(latestUsage.totalTokens > 0 || totalUsage.totalTokens > 0) && (
-              <TokenTracker latestUsage={latestUsage} totalUsage={totalUsage} model={model} />
+              <div className="hidden md:block">
+                <TokenTracker latestUsage={latestUsage} totalUsage={totalUsage} model={model} />
+              </div>
             )}
             {onOpenBenchmark && (
               <Button variant="ghost" size="icon" onClick={onOpenBenchmark} title="SVG Benchmark">
@@ -1515,6 +1519,17 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
               </Button>
             )}
             <ThemeToggle />
+            {/* Mobile-only info button */}
+            {currentSessionId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={() => setIsInfoSidebarOpen(true)}
+              >
+                <Info className="h-5 w-5" />
+              </Button>
+            )}
             {currentSessionId && (
               <DropdownMenu
                 trigger={
@@ -1554,7 +1569,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
           ref={scrollRef}
           onScrollCapture={handleScroll}
         >
-          <div className="px-0 md:px-4 pb-4 flex flex-col gap-2">
+          <div className="px-2 md:px-4 pb-4 flex flex-col gap-2">
             {messages.length === 0 && !streamingContent && streamingImages.length === 0 && streamingVariations.length === 0 ? (
               <div className="flex h-[calc(100vh-200px)] items-center justify-center text-muted-foreground">
                 <p>Start a new conversation</p>
@@ -1770,6 +1785,19 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
             </div>
           </div>
         </div>
+      )}
+      {currentSessionId && (
+        <ChatInfoSidebar
+          isOpen={isInfoSidebarOpen}
+          onClose={() => setIsInfoSidebarOpen(false)}
+          sessionTitle={sessions.find(s => s.id === currentSessionId)?.title || 'New Chat'}
+          latestUsage={latestUsage}
+          totalUsage={totalUsage}
+          model={model}
+          onRename={(newTitle) => renameSession(currentSessionId, newTitle)}
+          onDuplicate={() => forkSession(currentSessionId)}
+          onDelete={() => deleteSession(currentSessionId)}
+        />
       )}
     </div>
   )

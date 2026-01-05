@@ -53,7 +53,7 @@ export function ChatMessage({
   siblingIndex = 0,
   variationIndex,
   isPrefill,
-  originalPrefill,
+  originalPrefill: _originalPrefill,
   onEdit,
   onRetry,
   onReprefill,
@@ -139,7 +139,7 @@ export function ChatMessage({
   return (
     <div
       className={cn(
-        'group flex gap-2 md:gap-3 px-2 md:px-4 py-4 md:py-6 border-l-4',
+        'group flex gap-2 md:gap-3 pl-3 pr-2 md:px-4 py-4 md:py-6 border-l-4',
         isUser ? 'bg-background' : 'bg-muted/50',
         accentColor
       )}
@@ -179,7 +179,7 @@ export function ChatMessage({
             )}
           </div>
           {!isStreaming && !isEditing && (
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <div className="flex items-center gap-1 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
               <button
                 onClick={() => onAddBefore?.(isUser ? 'user' : 'assistant')}
                 className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-background/50"
