@@ -31,6 +31,7 @@ export function ChatInfoSidebar({
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(sessionTitle)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
 
   const modelConfig = MODELS[model]
 
@@ -177,13 +178,36 @@ export function ChatInfoSidebar({
           )}
 
           <div className="pt-4 border-t space-y-2">
-            <Button variant="outline" className="w-full justify-start gap-2" onClick={() => {
-              onDuplicate()
-              onClose()
-            }}>
-              <Copy className="h-4 w-4" />
-              Duplicate Chat
-            </Button>
+            {showDuplicateConfirm ? (
+              <div className="p-3 rounded-lg border border-primary/50 bg-primary/10 space-y-2">
+                <p className="text-sm">Duplicate this chat?</p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      onDuplicate()
+                      onClose()
+                    }}
+                  >
+                    Duplicate
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setShowDuplicateConfirm(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="outline" className="w-full justify-start gap-2" onClick={() => setShowDuplicateConfirm(true)}>
+                <Copy className="h-4 w-4" />
+                Duplicate Chat
+              </Button>
+            )}
             
             {showDeleteConfirm ? (
               <div className="p-3 rounded-lg border border-destructive/50 bg-destructive/10 space-y-2">

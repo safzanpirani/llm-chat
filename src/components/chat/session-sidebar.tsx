@@ -42,6 +42,8 @@ export function SessionSidebar({
 }: SessionSidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null)
+  const [confirmFork, setConfirmFork] = useState<{ id: string; title: string } | null>(null)
 
   const startEditing = (session: SessionMeta) => {
     setEditingId(session.id)
@@ -208,7 +210,7 @@ export function SessionSidebar({
                           onClick={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
-                            onForkSession(session.id)
+                            setConfirmFork({ id: session.id, title: session.title })
                           }}
                           title="Duplicate"
                         >
@@ -221,7 +223,7 @@ export function SessionSidebar({
                         onClick={(e) => {
                           e.stopPropagation()
                           e.preventDefault()
-                          onDeleteSession(session.id)
+                          setConfirmDelete({ id: session.id, title: session.title })
                         }}
                         title="Delete"
                       >
@@ -235,6 +237,61 @@ export function SessionSidebar({
           </div>
         </ScrollArea>
       </div>
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setConfirmDelete(null)} />
+          <div className="relative z-[60] w-full max-w-sm rounded-lg border bg-popover p-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Delete Chat</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Are you sure you want to delete "{confirmDelete.title}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  onDeleteSession(confirmDelete.id)
+                  setConfirmDelete(null)
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fork/Duplicate confirmation modal */}
+      {confirmFork && onForkSession && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setConfirmFork(null)} />
+          <div className="relative z-[60] w-full max-w-sm rounded-lg border bg-popover p-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Duplicate Chat</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create a copy of "{confirmFork.title}"?
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmFork(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onForkSession(confirmFork.id)
+                  setConfirmFork(null)
+                }}
+              >
+                Duplicate
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -13,11 +13,22 @@ import { SearchModal } from './search-modal'
 import { ChatInfoSidebar } from './chat-info-sidebar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy, FlaskConical, Info } from 'lucide-react'
+import { Menu, PanelLeft, MoreVertical, Pencil, Trash2, Copy, FlaskConical, Info, Bot } from 'lucide-react'
 import { useSessions } from '@/hooks/use-sessions'
 import { DEFAULT_MODEL, MODELS, type ModelId } from '@/lib/models'
 import type { Message, GeneratedImage, TokenUsage, VariationCount } from '@/lib/storage'
 import type { Attachment } from './chat-input'
+
+const LAST_MODEL_KEY = 'chat-app-last-model'
+
+function getStoredModel(): ModelId {
+  if (typeof window === 'undefined') return DEFAULT_MODEL
+  const stored = localStorage.getItem(LAST_MODEL_KEY)
+  if (stored && stored in MODELS) {
+    return stored as ModelId
+  }
+  return DEFAULT_MODEL
+}
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'] as const
 const RESOLUTIONS = ['1K', '2K', '4K'] as const
@@ -42,7 +53,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
     setMessages,
   } = useSessions()
 
-  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL)
+  const [model, setModel] = useState<ModelId>(getStoredModel())
   const [aspectRatio, setAspectRatio] = useState<typeof ASPECT_RATIOS[number]>('1:1')
   const [resolution, setResolution] = useState<typeof RESOLUTIONS[number]>('1K')
   const [variationCount, setVariationCount] = useState<VariationCount>(1)
@@ -50,6 +61,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showForkConfirm, setShowForkConfirm] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     // Initialize sidebar open on desktop (md breakpoint = 768px)
     if (typeof window !== 'undefined') {
@@ -90,7 +102,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
   }>>([])
   const pendingMessagesRef = useRef<Message[]>([])
   const pendingSessionIdRef = useRef<string | null>(null)
-  const pendingModelRef = useRef<ModelId>(DEFAULT_MODEL)
+  const pendingModelRef = useRef<ModelId>(getStoredModel())
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<ChatInputHandle>(null)
@@ -98,6 +110,11 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
   const lastScrollTopRef = useRef(0)
   const streamingUsageRef = useRef<TokenUsage | null>(null)
   const suppressAutoScrollRef = useRef(false)
+
+  // Persist model selection to localStorage
+  useEffect(() => {
+    localStorage.setItem(LAST_MODEL_KEY, model)
+  }, [model])
 
   // Improved scroll logic
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -127,7 +144,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
     }
   }, [streamingContent, streamingThinking, streamingVariations, isStreaming, scrollToBottom])
 
-  // Scroll to bottom on new messages (non-streaming)
+  // Scroll to bottom on new messages (non-streaminging)
   useEffect(() => {
     if (!isStreaming) {
       if (suppressAutoScrollRef.current) {
@@ -289,6 +306,19 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
 
     return total
   }, [messages, streamingUsage])
+
+  const variationsHaveOutput = streamingVariations.some((variation) =>
+    Boolean(variation.content || variation.thinking || variation.images.length > 0)
+  )
+
+  const showPreOutputIndicator = isStreaming
+    && !retryingVariation
+    && !streamingContent
+    && !streamingThinking
+    && streamingImages.length === 0
+    && (!streamingVariations.length || !variationsHaveOutput)
+
+  const preOutputLabel = variationCount > 1 ? 'Generating responses' : 'Thinking'
 
   const streamSingleResponse = async (
     messagesToSend: Message[],
@@ -1548,7 +1578,7 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
                   <Pencil className="h-4 w-4" />
                   Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => forkSession(currentSessionId)}>
+                <DropdownMenuItem onClick={() => setShowForkConfirm(true)}>
                   <Copy className="h-4 w-4" />
                   Duplicate
                 </DropdownMenuItem>
@@ -1676,6 +1706,17 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
                     />
                   )
                 })}
+                {showPreOutputIndicator && (
+                  <div className="flex gap-2 md:gap-3 pl-3 pr-2 md:px-4 py-4 md:py-6 border-l-4 border-l-blue-500 bg-muted/50">
+                    <div className="hidden md:flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                      <span className="font-medium text-foreground">{preOutputLabel}</span>
+                      <span className="animate-pulse">...</span>
+                    </div>
+                  </div>
+                )}
                 {streamingVariations.length > 0 && (
                   <VariationGroup
                     variations={[]}
@@ -1781,6 +1822,28 @@ export function ChatContainer({ onOpenBenchmark }: ChatContainerProps) {
                 }}
               >
                 Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showForkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowForkConfirm(false)} />
+          <div className="relative z-50 w-full max-w-sm rounded-lg border bg-popover p-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Duplicate Chat</h3>
+            <p className="text-sm text-muted-foreground mb-4">Create a copy of this chat?</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowForkConfirm(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  if (currentSessionId) {
+                    forkSession(currentSessionId)
+                    setShowForkConfirm(false)
+                  }
+                }}
+              >
+                Duplicate
               </Button>
             </div>
           </div>
